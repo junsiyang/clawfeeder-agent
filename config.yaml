@@ -1,0 +1,15 @@
+api:
+  base_url: "http://localhost:8000"
+  heartbeat_interval: 60
+
+auth:
+  email: "your@email.com"
+  password: "yourpassword"
+
+storage:
+  data_dir: "~/.clawfeeder/data"
+  expired_dir: "~/.clawfeeder/data/expired"
+
+device:
+  device_id: "local-agent-001"
+  device_name: "Local Agent"
