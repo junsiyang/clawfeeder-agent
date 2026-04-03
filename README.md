@@ -30,8 +30,8 @@ The installer will:
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/cookie-manager.git
-cd cookie-manager/clawfeeder
+git clone https://github.com/junsiyang/clawfeeder-agent.git
+cd clawfeeder-agent
 
 # Install dependencies
 pip install -r requirements.txt
