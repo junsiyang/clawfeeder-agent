@@ -13,7 +13,7 @@ class APIClient:
     def _headers(self) -> Dict[str, str]:
         headers = {"Content-Type": "application/json"}
         if self._api_key:
-            headers["X-API-Key"] = self._api_key
+            headers["Authorization"] = f"Bearer {self._api_key}"
         return headers
 
     async def post(self, path: str, data: Dict[str, Any]) -> Dict[str, Any]:

@@ -1,9 +1,12 @@
 import httpx
+import logging
 from datetime import datetime
 from typing import Dict
 from .api import APIClient
 from .crypto import Crypto
 from .storage import Storage
+
+logger = logging.getLogger(__name__)
 
 class TaskExecutor:
     def __init__(self, api_client: APIClient, crypto: Crypto, storage: Storage):
@@ -24,7 +27,7 @@ class TaskExecutor:
         task_id = task["id"]
         domain = task.get("domain", "unknown")
 
-        print(f"[Executor] Executing task {task_id} for {domain}")
+        logger.info(f"Executing task {task_id} for {domain}")
 
         # Step 1: Get full blob if needed
         if "encrypted_data" not in task:
@@ -60,7 +63,7 @@ class TaskExecutor:
             "last_checked_at": datetime.utcnow().isoformat()
         })
 
-        print(f"[Executor] Task {task_id} completed with status: {status}")
+        logger.info(f"Task {task_id} completed with status: {status}")
         return status
 
     async def _execute_keepalive(self, decrypted: dict, domain: str) -> str:
@@ -71,7 +74,7 @@ class TaskExecutor:
         cookies = decrypted.get("cookies", [])
 
         if not cookies:
-            print(f"[Executor] No cookies for {domain}")
+            logger.debug(f"No cookies for {domain}")
             return "active"
 
         # Find the keep-alive config (if any)
@@ -101,8 +104,8 @@ class TaskExecutor:
                 else:
                     return "active"  # Other errors, keep trying
         except httpx.TimeoutException:
-            print(f"[Executor] Timeout for {domain}")
+            logger.warning(f"Timeout for {domain}")
             return "active"
         except Exception as e:
-            print(f"[Executor] Error for {domain}: {e}")
+            logger.error(f"Error for {domain}: {e}")
             return "active"

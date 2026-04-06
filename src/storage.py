@@ -1,7 +1,10 @@
 import json
+import logging
 import os
 from pathlib import Path
 from typing import List, Dict, Optional
+
+logger = logging.getLogger(__name__)
 
 class Storage:
     def __init__(self, data_dir: Path, expired_dir: Path):
@@ -41,7 +44,7 @@ class Storage:
                 value = c.get("value", "")
                 f.write(f"{cookie_domain}\tTRUE\t{path}\t{secure}\t{expires}\t{name}\t{value}\n")
 
-        print(f"[Storage] Saved cookies for {domain}")
+        logger.info(f"Saved cookies for {domain}")
 
     def load_cookies(self, domain: str) -> Optional[dict]:
         """Load cookies from local file"""
@@ -59,7 +62,7 @@ class Storage:
             json_path.unlink()
         if header_path.exists():
             header_path.unlink()
-        print(f"[Storage] Deleted cookies for {domain}")
+        logger.info(f"Deleted cookies for {domain}")
 
     def move_to_expired(self, domain: str):
         """Move cookies to expired directory"""
@@ -73,7 +76,7 @@ class Storage:
             header_dest = self.expired_dir / f"{domain}.txt"
             header_dest.parent.mkdir(parents=True, exist_ok=True)
             header_src.rename(header_dest)
-        print(f"[Storage] Moved {domain} to expired")
+        logger.info(f"Moved {domain} to expired")
 
     def list_local_domains(self) -> List[str]:
         """List all domains with saved cookies"""
@@ -91,4 +94,4 @@ class Storage:
         for domain in local_domains - cloud_domains_set:
             self.delete_cookies(domain)
 
-        print(f"[Storage] GC completed: {len(local_domains)} local, {len(cloud_domains)} cloud")
+        logger.info(f"GC completed: {len(local_domains)} local, {len(cloud_domains)} cloud")

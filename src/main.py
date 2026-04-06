@@ -1,6 +1,9 @@
 import asyncio
 import argparse
+import logging
+import os
 import signal
+from pathlib import Path
 from .config import Config
 from .api import APIClient
 from .heartbeat import HeartbeatPoller
@@ -8,42 +11,58 @@ from .crypto import Crypto
 from .executor import TaskExecutor
 from .storage import Storage
 
-async def login(api: APIClient, email: str, password: str) -> str:
-    """Login to get API key"""
-    response = await api.post("/api/v1/login", {
-        "email": email,
-        "password": password
-    })
-    return response["api_key"]
 
 async def main():
     parser = argparse.ArgumentParser(description="ClawFeeder Agent")
     parser.add_argument("--config", default="config.yaml", help="Config file path")
     parser.add_argument("--device-id", help="Override device ID")
     parser.add_argument("--device-name", help="Override device name")
-    parser.add_argument("--email", help="Email for authentication")
-    parser.add_argument("--password", help="Password for authentication (also used for E2EE)")
+    parser.add_argument("--api-key", help="API key for authentication (format: cf_agt_...)")
     args = parser.parse_args()
 
     config = Config(args.config)
 
-    # Authentication: email + password
-    email = args.email or config._data.get("auth", {}).get("email")
-    password = args.password or config._data.get("auth", {}).get("password")
+    # Setup logging
+    log_dir = Path("~/.clawfeeder/logs").expanduser()
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_file = log_dir / "agent.log"
 
-    if not email or not password:
-        raise ValueError("Email and password required: --email and --password (or set in config.yaml)")
+    # Create agent-specific logger with PID
+    pid = os.getpid()
+    logger = logging.getLogger(f"agent.{config.device_id}")
+    logger.setLevel(logging.INFO)
+    logger.propagate = False
 
-    api = APIClient(base_url=config.api_base_url)
+    # Format with PID
+    formatter = logging.Formatter(
+        fmt=f"%(asctime)s [PID:%(process)d] [%(levelname)s] %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S"
+    )
 
-    # Login to get API key
-    print("[Main] Logging in...")
-    api_key = await login(api, email, password)
-    api.set_api_key(api_key)
-    print("[Main] Login successful")
+    # File handler
+    file_handler = logging.FileHandler(log_file)
+    file_handler.setFormatter(formatter)
+    logger.addHandler(file_handler)
 
-    # Password is used for both authentication and E2EE key derivation
-    crypto = Crypto(password)
+    # Console handler
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(formatter)
+    logger.addHandler(console_handler)
+
+    # Authentication: API key directly (no login needed)
+    api_key = args.api_key or config._data.get("auth", {}).get("api_key")
+
+    if not api_key:
+        raise ValueError("API key required: --api-key argument or 'auth.api_key' in config.yaml")
+
+    # Master key for E2EE decryption (same as before - from config/environment)
+    master_key = config.master_key
+    if not master_key:
+        raise ValueError("Master key required: MASTER_KEY env var or 'master_key' in config.yaml")
+
+    api = APIClient(base_url=config.api_base_url, api_key=api_key)
+
+    crypto = Crypto(master_key)
     storage = Storage(config.data_dir, config.expired_dir)
     executor = TaskExecutor(api, crypto, storage)
 
@@ -51,7 +70,8 @@ async def main():
         api_client=api,
         device_id=args.device_id or config.device_id,
         device_name=args.device_name or config.device_name,
-        interval=config.heartbeat_interval
+        interval=config.heartbeat_interval,
+        logger=logger
     )
 
     # Setup graceful shutdown handlers
@@ -59,7 +79,7 @@ async def main():
     shutdown_event = asyncio.Event()
 
     def shutdown_handler():
-        print("[Main] Received shutdown signal...")
+        logger.info("Received shutdown signal")
         poller.stop()
         shutdown_event.set()
 
@@ -71,9 +91,9 @@ async def main():
             # Windows doesn't support add_signal_handler
             pass
 
-    print("[Main] ClawFeeder Agent starting...")
-    print(f"[Main] API: {config.api_base_url}")
-    print(f"[Main] Device: {config.device_id}")
+    logger.info("ClawFeeder Agent starting")
+    logger.info(f"API: {config.api_base_url}")
+    logger.info(f"Device: {config.device_id}")
 
     # Wrap to also run GC periodically
     gc_counter = 0
@@ -101,7 +121,8 @@ async def main():
 
     finally:
         await api.close()
-        print("[Main] Shutdown complete")
+        logger.info("Shutdown complete")
+
 
 async def run_gc(storage: Storage, api: APIClient):
     """Fetch cloud state and run garbage collection"""
@@ -111,7 +132,8 @@ async def run_gc(storage: Storage, api: APIClient):
         cloud_domains = [c["domain"] for c in cloud_cookies if c.get("status") == "active"]
         await storage.garbage_collect(cloud_domains)
     except Exception as e:
-        print(f"[GC] Error: {e}")
+        logger.error(f"GC error: {e}")
+
 
 if __name__ == "__main__":
     asyncio.run(main())

@@ -1,32 +1,28 @@
 #!/usr/bin/env bash
 # =============================================================================
-# ClawFeeder Agent - One-Line Installer
+# ClawFeeder Agent - Local Installer
 # =============================================================================
-# Usage: curl -sSL https://your-domain.com/install.sh | bash
-# Or:    bash <(curl -sSL https://your-domain.com/install.sh)
+# Usage:
+#   bash install.sh
+#   API_KEY="cf_agt_xxx" MASTER_KEY="password" bash install.sh
 #
 # This script:
-#   1. Detects OS and architecture
-#   2. Downloads the latest binary
-#   3. Sets up config directory (~/.clawfeeder/)
-#   4. Registers as systemd service (Linux) or launchd (macOS)
-#   5. Starts the service
+#   1. Creates config directory (~/.clawfeeder/)
+#   2. Generates config.yaml
+#   3. Creates launcher script
 # =============================================================================
 
 set -e
 
 # Configuration
 AGENT_NAME="clawfeeder"
-INSTALL_DIR="/opt/${AGENT_NAME}"
 CONFIG_DIR="${HOME}/.${AGENT_NAME}"
-BINARY_NAME="${AGENT_NAME}"
-REPO_URL="https://github.com/yourusername/cookie-manager/releases/latest"
 
 # Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
-NC='\033[0m' # No Color
+NC='\033[0m'
 
 log_info() {
     echo -e "${GREEN}[INFO]${NC} $1"
@@ -40,275 +36,111 @@ log_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
-# Detect OS
-detect_os() {
-    if [[ "$OSTYPE" == "linux-gnu"* ]]; then
-        if command -v systemctl &> /dev/null; then
-            echo "linux-systemd"
-        else
-            echo "linux-no-systemd"
-        fi
-    elif [[ "$OSTYPE" == "darwin"* ]]; then
-        echo "macos"
-    elif [[ "$OSTYPE" == "msys" ]] || [[ "$OSTYPE" == "cygwin" ]]; then
-        echo "windows"
-    else
-        echo "unknown"
-    fi
-}
+# Main
+main() {
+    echo ""
+    echo "=============================================="
+    echo "  ${AGENT_NAME} Agent Installer"
+    echo "=============================================="
+    echo ""
 
-# Detect architecture
-detect_arch() {
-    local arch=$(uname -m)
-    case $arch in
-        x86_64)
-            echo "amd64"
-            ;;
-        aarch64|arm64)
-            echo "arm64"
-            ;;
-        armv7l)
-            echo "arm"
-            ;;
-        *)
-            echo "amd64"
-            ;;
-    esac
-}
+    # Get project directory (where this script is)
+    local script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    local venv_python="${script_dir}/.venv/bin/python"
 
-# Download binary
-download_binary() {
-    local os=$1
-    local arch=$2
-    local version=$3
-
-    log_info "Downloading ${AGENT_NAME} v${version} for ${os}/${arch}..."
-
-    local download_url="${REPO_URL}/download/v${version}/${AGENT_NAME}-${os}-${arch}"
-    local tmp_file="/tmp/${BINARY_NAME}"
-
-    if command -v curl &> /dev/null; then
-        curl -sSL -o "$tmp_file" "$download_url"
-    elif command -v wget &> /dev/null; then
-        wget -q -O "$tmp_file" "$download_url"
-    else
-        log_error "curl or wget is required"
+    if [[ ! -f "$venv_python" ]]; then
+        log_error "Virtual environment not found at ${script_dir}/.venv/"
+        log_error "Please run: cd ${script_dir} && python -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt"
         exit 1
     fi
 
-    chmod +x "$tmp_file"
-    mkdir -p "$INSTALL_DIR"
-    mv "$tmp_file" "${INSTALL_DIR}/${BINARY_NAME}"
+    # Check for API key
+    if [[ -z "${API_KEY}" ]]; then
+        log_warn "API_KEY not set"
+        echo -n "Enter your Agent API Key (cf_agt_...): "
+        read API_KEY
+        echo ""
+    fi
 
-    log_info "Binary installed to ${INSTALL_DIR}/${BINARY_NAME}"
-}
+    if [[ -z "${API_KEY}" ]]; then
+        log_error "API key is required"
+        exit 1
+    fi
 
-# Setup config directory
-setup_config() {
-    log_info "Setting up config directory: ${CONFIG_DIR}"
+    if [[ ! "${API_KEY}" =~ ^cf_agt_ ]]; then
+        log_error "Invalid API key format. Should start with 'cf_agt_'"
+        exit 1
+    fi
 
+    # Check for master key
+    if [[ -z "${MASTER_KEY}" ]]; then
+        log_warn "MASTER_KEY not set"
+        echo -n "Enter your Master Password: "
+        read -s MASTER_KEY
+        echo ""
+    fi
+
+    if [[ -z "${MASTER_KEY}" ]]; then
+        log_error "Master password is required"
+        exit 1
+    fi
+
+    # Setup config directory
+    log_info "Creating config directory: ${CONFIG_DIR}"
     mkdir -p "${CONFIG_DIR}"
     mkdir -p "${CONFIG_DIR}/data"
-    mkdir -p "${CONFIG_DIR}/data/expired"
     mkdir -p "${CONFIG_DIR}/logs"
 
-    # Create default config if not exists
-    if [[ ! -f "${CONFIG_DIR}/config.yaml" ]]; then
-        cat > "${CONFIG_DIR}/config.yaml" << EOF
+    # Generate device ID
+    local device_id=$(cat /proc/sys/kernel/random/uuid 2>/dev/null || uuidgen 2>/dev/null || echo "device-$$")
+
+    # Create config
+    log_info "Creating config.yaml..."
+    cat > "${CONFIG_DIR}/config.yaml" << EOF
 api:
   base_url: "http://localhost:8000"
   heartbeat_interval: 60
 
 auth:
-  email: "your@email.com"
-  password: "yourpassword"
+  api_key: "${API_KEY}"
 
 storage:
   data_dir: "${CONFIG_DIR}/data"
   expired_dir: "${CONFIG_DIR}/data/expired"
 
 device:
-  device_id: "$(uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid)"
+  device_id: "${device_id}"
   device_name: "$(hostname)"
-EOF
-        log_info "Created default config at ${CONFIG_DIR}/config.yaml"
-    fi
-}
 
-# Register as systemd service (Linux)
-register_systemd_service() {
-    log_info "Registering systemd service..."
-
-    local service_file="/etc/systemd/system/${AGENT_NAME}.service"
-
-    sudo tee "$service_file" > /dev/null << EOF
-[Unit]
-Description=ClawFeeder Agent
-After=network.target
-
-[Service]
-Type=simple
-User=$USER
-WorkingDirectory=${CONFIG_DIR}
-Environment="EMAIL=${EMAIL}" "PASSWORD=${PASSWORD}"
-ExecStart=${INSTALL_DIR}/${BINARY_NAME} --config ${CONFIG_DIR}/config.yaml --email \${EMAIL} --password \${PASSWORD}
-Restart=always
-RestartSec=10
-
-[Install]
-WantedBy=multi-user.target
+master_key: "${MASTER_KEY}"
 EOF
 
-    sudo systemctl daemon-reload
-    sudo systemctl enable "${AGENT_NAME}"
-
-    log_info "Systemd service registered"
-}
-
-# Register as launchd service (macOS)
-register_launchd_service() {
-    log_info "Registering launchd service..."
-
-    local plist_dir="${HOME}/Library/LaunchAgents"
-    local plist_file="${plist_dir}/io.${AGENT_NAME}.plist"
-
-    mkdir -p "$plist_dir"
-
-    cat > "$plist_file" << EOF
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>Label</key>
-    <string>io.${AGENT_NAME}</string>
-    <key>ProgramArguments</key>
-    <array>
-        <string>${INSTALL_DIR}/${BINARY_NAME}</string>
-        <string>--config</string>
-        <string>${CONFIG_DIR}/config.yaml</string>
-        <string>--email</string>
-        <string>${EMAIL}</string>
-        <string>--password</string>
-        <string>${PASSWORD}</string>
-    </array>
-    <key>EnvironmentVariables</key>
-    <dict>
-        <key>EMAIL</key>
-        <string>${EMAIL}</string>
-        <key>PASSWORD</key>
-        <string>${PASSWORD}</string>
-    </dict>
-    <key>RunAtLoad</key>
-    <true/>
-    <key>KeepAlive</key>
-    <true/>
-    <key>StandardOutPath</key>
-    <string>${CONFIG_DIR}/logs/agent.log</string>
-    <key>StandardErrorPath</key>
-    <string>${CONFIG_DIR}/logs/agent.err</string>
-</dict>
-</plist>
-EOF
-
-    log_info "Launchd plist created at ${plist_file}"
-}
-
-# Start service
-start_service() {
-    local os=$1
-
-    log_info "Starting ${AGENT_NAME}..."
-
-    if [[ "$os" == "linux-systemd" ]]; then
-        sudo systemctl start "${AGENT_NAME}"
-        sudo systemctl status "${AGENT_NAME}" --no-pager
-    elif [[ "$os" == "macos" ]]; then
-        launchctl load "$plist_file"
-    else
-        log_warn "Auto-start not available for ${os}, starting manually..."
-        nohup "${INSTALL_DIR}/${BINARY_NAME}" --config "${CONFIG_DIR}/config.yaml" --email "${EMAIL}" --password "${PASSWORD}" > "${CONFIG_DIR}/logs/agent.log" 2>&1 &
-    fi
-}
-
-# Main
-main() {
-    echo ""
-    echo "=============================================="
-    echo "  ${AGENT_NAME} One-Line Installer"
-    echo "=============================================="
-    echo ""
-
-    # Check for email and password
-    if [[ -z "${EMAIL}" ]]; then
-        log_warn "EMAIL not set in environment"
-        echo -n "Enter your email: "
-        read EMAIL
-        echo ""
-    fi
-
-    if [[ -z "${PASSWORD}" ]]; then
-        log_warn "PASSWORD not set in environment"
-        echo -n "Enter your password: "
-        read -s PASSWORD
-        echo ""
-    fi
-
-    if [[ -z "${EMAIL}" ]] || [[ -z "${PASSWORD}" ]]; then
-        log_error "Email and password are required"
-        exit 1
-    fi
-
-    local os=$(detect_os)
-    local arch=$(detect_arch)
-
-    log_info "Detected: ${os}/${arch}"
-
-    if [[ "$os" == "unknown" ]]; then
-        log_error "Unsupported OS: $OSTYPE"
-        exit 1
-    fi
-
-    # For demo, we'll create a placeholder for the binary
-    # In production, this would download from GitHub releases
-    log_info "Setting up directory structure..."
-
-    setup_config
-
-    # Download or create placeholder binary
-    # Note: In production, download actual binary
-    mkdir -p "$INSTALL_DIR"
-
-    # Create a simple launcher script as placeholder
-    cat > "${INSTALL_DIR}/${BINARY_NAME}" << 'LAUNCHER'
+    # Create launcher
+    log_info "Creating launcher..."
+    local launcher="${CONFIG_DIR}/${AGENT_NAME}"
+    cat > "$launcher" << LAUNCHER
 #!/usr/bin/env bash
-# Launcher placeholder - replace with actual binary
-exec python3 "$(dirname "$0")/../../../clawfeeder/src/main.py" "$@"
+# ClawFeeder Agent Launcher
+cd "${script_dir}"
+exec "${script_dir}/.venv/bin/python" -m src.main --config "${CONFIG_DIR}/config.yaml" "\$@"
 LAUNCHER
-    chmod +x "${INSTALL_DIR}/${BINARY_NAME}"
-
-    # Register service
-    if [[ "$os" == "linux-systemd" ]]; then
-        register_systemd_service
-    elif [[ "$os" == "macos" ]]; then
-        register_launchd_service
-    fi
+    chmod +x "$launcher"
+    log_info "Launcher created at ${launcher}"
 
     echo ""
-    log_info "=============================================="
-    log_info "  Installation Complete!"
-    log_info "=============================================="
+    echo "=============================================="
+    echo "  Installation Complete!"
+    echo "=============================================="
     echo ""
     log_info "Config: ${CONFIG_DIR}/config.yaml"
-    log_info "Logs:   ${CONFIG_DIR}/logs/"
+    log_info "Launcher: ${launcher}"
     echo ""
-    log_info "To start manually:"
-    echo "  ${INSTALL_DIR}/${BINARY_NAME} --config ${CONFIG_DIR}/config.yaml --email '${EMAIL}' --password '${PASSWORD}'"
+    echo "Usage:"
+    echo "  ${launcher} --config ${CONFIG_DIR}/config.yaml"
     echo ""
-    log_info "To uninstall:"
-    echo "  sudo systemctl stop ${AGENT_NAME}  # Linux"
-    echo "  launchctl unload ~/Library/LaunchAgents/io.${AGENT_NAME}.plist  # macOS"
-    echo "  rm -rf ${INSTALL_DIR} ${CONFIG_DIR}"
+    echo "Or with environment variables:"
+    echo "  MASTER_KEY='your_password' ${launcher} --api-key '${API_KEY}'"
     echo ""
 }
 
-main "$@"
+main
