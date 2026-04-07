@@ -6,7 +6,7 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.backends import default_backend
 
 # Fixed salt matching Chrome extension's FIXED_SALT
-FIXED_SALT = b"cookie-manager-salt-v1"
+FIXED_SALT = b"clawfeeder-salt-v1"
 
 class Crypto:
     def __init__(self, master_password: str):

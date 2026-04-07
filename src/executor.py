@@ -48,8 +48,9 @@ class TaskExecutor:
         # Step 4: Save to local storage
         self.storage.save_cookies(domain, {
             "domain": domain,
+            "note": task.get("note"),
             "cookies": decrypted.get("cookies", []),
-            "capturedAt": datetime.utcnow().isoformat(),
+            "capturedAt": task.get("captured_at") or datetime.utcnow().isoformat(),
             "keepAlive": decrypted.get("keepAlive", {})
         })
 
