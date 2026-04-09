@@ -9,7 +9,7 @@
 #   # Edit config.build.yaml with your base_url
 #   bash build.sh
 #
-# Output: dist/clawfeeder
+# Output: dist/clawfeeder-agent
 # =============================================================================
 
 set -e
@@ -63,7 +63,7 @@ echo "[INFO] Generated src/_build_config.py"
 cd "$SCRIPT_DIR"
 "$VENV_PYTHON" -m PyInstaller \
   --onefile \
-  --name clawfeeder \
+  --name clawfeeder-agent \
   --clean \
   src/main.py
 
@@ -72,7 +72,7 @@ rm -f "$GENERATED"
 echo "[INFO] Cleaned up src/_build_config.py"
 
 echo ""
-echo -e "${GREEN}[OK]${NC} Built: ${SCRIPT_DIR}/dist/clawfeeder"
+echo -e "${GREEN}[OK]${NC} Built: ${SCRIPT_DIR}/dist/clawfeeder-agent"
 echo ""
-echo "Distribute dist/clawfeeder to users, then run:"
+echo "Distribute dist/clawfeeder-agent to users, then run:"
 echo "  bash install.sh"

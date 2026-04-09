@@ -2,17 +2,20 @@
 # =============================================================================
 # ClawFeeder Agent - User Installer
 # =============================================================================
-# Run this after receiving the pre-built binary (dist/clawfeeder).
+# Run this after receiving the pre-built binary (dist/clawfeeder-agent).
 #
 # Usage:
 #   bash install.sh
 #   API_KEY="cf_agt_xxx" MASTER_KEY="password" bash install.sh
+#
+# To update config after installation, edit ~/.clawfeeder/config.yaml directly
+# and restart the agent. No need to re-run install.sh.
 # =============================================================================
 
 set -e
 
-AGENT_NAME="clawfeeder"
-CONFIG_DIR="${HOME}/.${AGENT_NAME}"
+BINARY_NAME="clawfeeder-agent"
+CONFIG_DIR="${HOME}/.clawfeeder"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -26,24 +29,23 @@ log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 main() {
     echo ""
     echo "=============================================="
-    echo "  ${AGENT_NAME} Agent Installer"
+    echo "  ClawFeeder Agent Installer"
     echo "=============================================="
     echo ""
 
     local script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    local binary="${script_dir}/clawfeeder"
+    local binary="${script_dir}/${BINARY_NAME}"
 
     # ── Check binary ───────────────────────────────────────────────────────
     if [[ ! -f "$binary" ]]; then
         log_error "Binary not found: ${binary}"
-        log_error "Please place the pre-built 'clawfeeder' binary next to install.sh"
+        log_error "Please place the pre-built '${BINARY_NAME}' binary next to install.sh"
         exit 1
     fi
 
-    # ── User config ────────────────────────────────────────────────────────
+    # ── Required: API Key ──────────────────────────────────────────────────
     if [[ -z "${API_KEY}" ]]; then
-        log_warn "API_KEY not set"
-        echo -n "Enter your Agent API Key (cf_agt_...): "
+        echo -n "Agent API Key (cf_agt_...): "
         read API_KEY
         echo ""
     fi
@@ -58,9 +60,9 @@ main() {
         exit 1
     fi
 
+    # ── Required: Master Password ──────────────────────────────────────────
     if [[ -z "${MASTER_KEY}" ]]; then
-        log_warn "MASTER_KEY not set"
-        echo -n "Enter your Master Password: "
+        echo -n "Master Password: "
         read -s MASTER_KEY
         echo ""
     fi
@@ -70,16 +72,32 @@ main() {
         exit 1
     fi
 
+    # ── Optional: Device Name (default: hostname) ──────────────────────────
+    local default_device_name
+    default_device_name="$(hostname)"
+
+    if [[ -z "${DEVICE_NAME}" ]]; then
+        echo -n "Device Name [${default_device_name}]: "
+        read DEVICE_NAME
+        echo ""
+    fi
+
+    if [[ -z "${DEVICE_NAME}" ]]; then
+        DEVICE_NAME="${default_device_name}"
+    fi
+
+    # ── Auto-generated: Device ID ──────────────────────────────────────────
+    local device_id
+    device_id=$(cat /proc/sys/kernel/random/uuid 2>/dev/null || uuidgen 2>/dev/null || echo "device-$$")
+
     # ── Write user config ──────────────────────────────────────────────────
     log_info "Creating config directory: ${CONFIG_DIR}"
     mkdir -p "${CONFIG_DIR}" "${CONFIG_DIR}/data" "${CONFIG_DIR}/logs"
 
-    local device_id
-    device_id=$(cat /proc/sys/kernel/random/uuid 2>/dev/null || uuidgen 2>/dev/null || echo "device-$$")
-
     log_info "Writing ~/.clawfeeder/config.yaml..."
     cat > "${CONFIG_DIR}/config.yaml" << EOF
 # User config — edit this file to update your personal settings.
+# Changes take effect on agent restart. No need to re-run install.sh.
 
 auth:
   api_key: "${API_KEY}"
@@ -90,16 +108,15 @@ storage:
 
 device:
   device_id: "${device_id}"
-  device_name: "$(hostname)"
+  device_name: "${DEVICE_NAME}"
 
 master_key: "${MASTER_KEY}"
 EOF
 
     # ── Install binary ─────────────────────────────────────────────────────
-    local installed="${CONFIG_DIR}/${AGENT_NAME}"
+    local installed="${CONFIG_DIR}/${BINARY_NAME}"
     cp "$binary" "$installed"
     chmod +x "$installed"
-    log_info "Installed binary: ${installed}"
 
     echo ""
     echo "=============================================="
@@ -111,6 +128,8 @@ EOF
     echo ""
     echo "Start:"
     echo "  ${installed} --config ${CONFIG_DIR}/config.yaml"
+    echo ""
+    echo "To update settings, edit config.yaml and restart."
     echo ""
 }
 
