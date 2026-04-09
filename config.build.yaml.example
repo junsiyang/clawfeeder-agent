@@ -1,0 +1,12 @@
+# Build-time configuration for ClawFeeder Agent
+# Copy this file to config.build.yaml and fill in your values.
+# config.build.yaml is gitignored and must NOT be committed.
+#
+# Usage:
+#   cp config.build.yaml.example config.build.yaml
+#   # Edit config.build.yaml with your deployment values
+#   bash install.sh
+
+api:
+  base_url: "__BASE_URL__"        # e.g. https://clawfeeder.example.com
+  heartbeat_interval: 60          # seconds between heartbeats
