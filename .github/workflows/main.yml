@@ -1,3 +1,16 @@
+name: Build and Release Agent
+
+on:
+  # 💡 触发器 1：纯手动触发 (强烈推荐 MVP 阶段使用)
+  # 加上这行后，你的 GitHub 页面会出现一个 "Run workflow" 的按钮，随时可以点！
+  workflow_dispatch:
+
+  # 💡 触发器 2：基于 Tag 触发 (真正的自动化发版)
+  # 只有当你打上比如 v1.0.0 这种版本标签推送到 GitHub 时，才会触发打包，平时提交代码不会浪费资源。
+  push:
+    tags:
+      - 'v*'
+
 jobs:
   build-agent:
     name: Build on ${{ matrix.os }}
