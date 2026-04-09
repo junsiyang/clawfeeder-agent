@@ -14,11 +14,16 @@ class Config:
 
     @property
     def api_base_url(self) -> str:
-        return self._data['api']['base_url']
+        # Set by launcher (embedded at install time); fallback to config file
+        return os.environ.get('CLAWFEEDER_BASE_URL') or self._data.get('api', {}).get('base_url', '')
 
     @property
     def heartbeat_interval(self) -> int:
-        return self._data['api']['heartbeat_interval']
+        # Set by launcher (embedded at install time); fallback to config file
+        env_val = os.environ.get('CLAWFEEDER_HEARTBEAT_INTERVAL')
+        if env_val:
+            return int(env_val)
+        return self._data.get('api', {}).get('heartbeat_interval', 60)
 
     @property
     def data_dir(self) -> Path:
