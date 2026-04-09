@@ -65,7 +65,7 @@ cd "$SCRIPT_DIR"
   --onefile \
   --name clawfeeder-agent \
   --clean \
-  src/main.py
+  entrypoint.py
 
 # ── Cleanup ───────────────────────────────────────────────────────────────────
 rm -f "$GENERATED"
