@@ -1,3 +1,7 @@
 .venv/
 config.build.yaml
 config.yaml
+src/_build_config.py
+dist/
+build/
+*.spec

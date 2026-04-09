@@ -1,18 +1,12 @@
 #!/usr/bin/env bash
 # =============================================================================
-# ClawFeeder Agent - Local Installer
+# ClawFeeder Agent - User Installer
 # =============================================================================
+# Run this after receiving the pre-built binary (dist/clawfeeder).
+#
 # Usage:
 #   bash install.sh
 #   API_KEY="cf_agt_xxx" MASTER_KEY="password" bash install.sh
-#
-# Build-time config (base_url etc.) is read from config.build.yaml.
-# User config (api_key, master_key, device info) is written to ~/.clawfeeder/config.yaml.
-#
-# Setup:
-#   cp config.build.yaml.example config.build.yaml
-#   # Edit config.build.yaml with your base_url
-#   bash install.sh
 # =============================================================================
 
 set -e
@@ -37,38 +31,14 @@ main() {
     echo ""
 
     local script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    local venv_python="${script_dir}/.venv/bin/python"
-    local build_config="${script_dir}/config.build.yaml"
+    local binary="${script_dir}/clawfeeder"
 
-    if [[ ! -f "$venv_python" ]]; then
-        log_error "Virtual environment not found at ${script_dir}/.venv/"
-        log_error "Please run: cd ${script_dir} && python -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt"
+    # ── Check binary ───────────────────────────────────────────────────────
+    if [[ ! -f "$binary" ]]; then
+        log_error "Binary not found: ${binary}"
+        log_error "Please place the pre-built 'clawfeeder' binary next to install.sh"
         exit 1
     fi
-
-    # ── Build-time config ──────────────────────────────────────────────────
-    if [[ ! -f "$build_config" ]]; then
-        log_error "config.build.yaml not found."
-        log_error "Run: cp config.build.yaml.example config.build.yaml"
-        log_error "Then set base_url in config.build.yaml"
-        exit 1
-    fi
-
-    if grep -q '__BASE_URL__' "$build_config"; then
-        log_error "config.build.yaml still contains placeholder '__BASE_URL__'."
-        log_error "Edit config.build.yaml and set the real base_url."
-        exit 1
-    fi
-
-    # Read build-time values from config.build.yaml
-    local base_url
-    base_url=$("${venv_python}" -c \
-        "import yaml; d=yaml.safe_load(open('${build_config}')); print(d['api']['base_url'])")
-    local heartbeat_interval
-    heartbeat_interval=$("${venv_python}" -c \
-        "import yaml; d=yaml.safe_load(open('${build_config}')); print(d['api'].get('heartbeat_interval', 60))")
-
-    log_info "Backend: ${base_url}"
 
     # ── User config ────────────────────────────────────────────────────────
     if [[ -z "${API_KEY}" ]]; then
@@ -100,7 +70,7 @@ main() {
         exit 1
     fi
 
-    # ── Write user config ─────────────────────────────────────────────────
+    # ── Write user config ──────────────────────────────────────────────────
     log_info "Creating config directory: ${CONFIG_DIR}"
     mkdir -p "${CONFIG_DIR}" "${CONFIG_DIR}/data" "${CONFIG_DIR}/logs"
 
@@ -110,7 +80,6 @@ main() {
     log_info "Writing ~/.clawfeeder/config.yaml..."
     cat > "${CONFIG_DIR}/config.yaml" << EOF
 # User config — edit this file to update your personal settings.
-# Build-time settings (base_url etc.) are embedded in the launcher.
 
 auth:
   api_key: "${API_KEY}"
@@ -126,33 +95,22 @@ device:
 master_key: "${MASTER_KEY}"
 EOF
 
-    # ── Launcher (build-time config embedded here) ─────────────────────────
-    log_info "Creating launcher..."
-    local launcher="${CONFIG_DIR}/${AGENT_NAME}"
-    cat > "$launcher" << LAUNCHER
-#!/usr/bin/env bash
-# ClawFeeder Agent Launcher
-# Build-time config embedded by install.sh — do not edit manually.
-# To update base_url or heartbeat_interval, re-run install.sh.
-export CLAWFEEDER_BASE_URL="${base_url}"
-export CLAWFEEDER_HEARTBEAT_INTERVAL="${heartbeat_interval}"
-
-cd "${script_dir}"
-exec "${script_dir}/.venv/bin/python" -m src.main --config "${CONFIG_DIR}/config.yaml" "\$@"
-LAUNCHER
-    chmod +x "$launcher"
+    # ── Install binary ─────────────────────────────────────────────────────
+    local installed="${CONFIG_DIR}/${AGENT_NAME}"
+    cp "$binary" "$installed"
+    chmod +x "$installed"
+    log_info "Installed binary: ${installed}"
 
     echo ""
     echo "=============================================="
     echo "  Installation Complete!"
     echo "=============================================="
     echo ""
-    log_info "User config:  ${CONFIG_DIR}/config.yaml"
-    log_info "Build config: ${build_config}"
-    log_info "Launcher:     ${launcher}"
+    log_info "Config:  ${CONFIG_DIR}/config.yaml"
+    log_info "Binary:  ${installed}"
     echo ""
     echo "Start:"
-    echo "  ${launcher}"
+    echo "  ${installed} --config ${CONFIG_DIR}/config.yaml"
     echo ""
 }
 
