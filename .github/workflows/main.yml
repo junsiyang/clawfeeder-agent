@@ -1,0 +1,24 @@
+jobs:
+  build-agent:
+    name: Build on ${{ matrix.os }}
+    # 核心魔法：定义一个操作系统矩阵
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    
+    # 让 GitHub 动态分配机器
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+        
+      - name: 配置 Python 环境
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          
+      - name: 安装依赖并打包 (PyInstaller)
+        run: |
+          pip install pyinstaller cryptography httpx
+          pyinstaller --onefile agent.py
