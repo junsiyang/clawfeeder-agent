@@ -192,9 +192,14 @@ class TaskExecutor:
         Returns: (is_valid, message)
         """
         # 1. Status code validation (mandatory)
-        expected_status = rule.expected_status if rule else 200
-        if response.status_code != expected_status:
-            return False, f"状态码不匹配: {response.status_code} != {expected_status}"
+        if rule and rule.expected_status:
+            # With rule: exact match against configured status
+            if response.status_code != rule.expected_status:
+                return False, f"状态码不匹配: {response.status_code} != {rule.expected_status}"
+        else:
+            # Without rule: accept any 2xx as active
+            if not (200 <= response.status_code < 300):
+                return False, f"状态码不在2xx范围: {response.status_code}"
 
         # 2. If no JSON path validation, consider it active
         if not rule or not rule.expected_json_path:
