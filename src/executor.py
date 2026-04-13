@@ -1,4 +1,5 @@
 import json
+import asyncio
 import httpx
 import logging
 from datetime import datetime
@@ -116,6 +117,7 @@ class TaskExecutor:
     ) -> str:
         """
         Execute HTTP keep-alive request with dual validation engine.
+        Retries up to 3 times with exponential backoff on transient errors.
         Returns 'active' or 'expired'.
         """
         cookies = decrypted.get("cookies", [])
@@ -139,27 +141,43 @@ class TaskExecutor:
 
         headers = {"Cookie": cookie_str}
 
-        try:
-            async with httpx.AsyncClient(timeout=10.0, trust_env=False) as client:
-                if method == "GET":
-                    response = await client.get(url, headers=headers)
-                elif method == "POST":
-                    response = await client.post(url, headers=headers)
-                else:
-                    response = await client.request(method, url, headers=headers)
+        max_retries = 3
+        for attempt in range(1, max_retries + 1):
+            try:
+                async with httpx.AsyncClient(timeout=10.0, trust_env=False) as client:
+                    if method == "GET":
+                        response = await client.get(url, headers=headers)
+                    elif method == "POST":
+                        response = await client.post(url, headers=headers)
+                    else:
+                        response = await client.request(method, url, headers=headers)
 
-                # Dual validation
-                ok, message = self.validate_response(response, rule)
-                logger.info(f"Validation for {domain}: {message}")
+                    # Server error (5xx) — retry
+                    if response.status_code >= 500 and attempt < max_retries:
+                        logger.warning(f"Server error {response.status_code} for {domain} (attempt {attempt}/{max_retries})")
+                        await asyncio.sleep(2 ** attempt)
+                        continue
 
-                return "active" if ok else "expired"
+                    # Dual validation
+                    ok, message = self.validate_response(response, rule)
+                    logger.info(f"Validation for {domain}: {message}")
 
-        except httpx.TimeoutException:
-            logger.warning(f"Timeout for {domain}")
-            return "active"
-        except Exception as e:
-            logger.error(f"Error for {domain}: {e}")
-            return "active"
+                    return "active" if ok else "expired"
+
+            except httpx.TimeoutException:
+                logger.warning(f"Timeout for {domain} (attempt {attempt}/{max_retries})")
+                if attempt < max_retries:
+                    await asyncio.sleep(2 ** attempt)
+                    continue
+                return "active"
+            except Exception as e:
+                logger.error(f"Error for {domain} (attempt {attempt}/{max_retries}): {e}")
+                if attempt < max_retries:
+                    await asyncio.sleep(2 ** attempt)
+                    continue
+                return "active"
+
+        return "active"
 
     def validate_response(
         self,
