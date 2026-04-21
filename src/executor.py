@@ -97,7 +97,7 @@ class TaskExecutor:
         try:
             response = await self.api.get(f"/api/v1/domain-rules/{domain}")
             if response and response.get("keep_alive_url"):
-                return ValidationRule(
+                rule = ValidationRule(
                     url=response["keep_alive_url"],
                     method=response.get("method", "GET"),
                     expected_status=response.get("expected_status", 200),
@@ -105,8 +105,15 @@ class TaskExecutor:
                     json_operator=response.get("json_operator", "exists"),
                     expected_json_value=response.get("expected_json_value")
                 )
+                logger.info(
+                    f"Domain rule for {domain}: {rule.method} {rule.url} "
+                    f"(expect {rule.expected_status}, {rule.json_operator} {rule.expected_json_path}"
+                    f"{'=' + rule.expected_json_value if rule.expected_json_value else ''})"
+                )
+                return rule
+            logger.info(f"No domain rule configured for {domain}")
         except Exception as e:
-            logger.debug(f"No domain rule for {domain}: {e}")
+            logger.warning(f"Failed to fetch domain rule for {domain}: {e}")
         return None
 
     async def _execute_keepalive_with_validation(
@@ -134,9 +141,13 @@ class TaskExecutor:
             url = rule.url
             method = rule.method
         else:
-            # Fallback to legacy keepAlive config
+            # No domain rule: fall back to legacy keepAlive config if present,
+            # otherwise skip — don't hit https://{domain}/ blindly.
             keepalive = decrypted.get("keepAlive", {})
-            url = keepalive.get("url", f"https://{domain}/")
+            url = keepalive.get("url")
+            if not url:
+                logger.info(f"No keep-alive rule configured for {domain}, skipping")
+                return "active"
             method = keepalive.get("method", "GET").upper()
 
         headers = {"Cookie": cookie_str}
@@ -144,7 +155,7 @@ class TaskExecutor:
         max_retries = 3
         for attempt in range(1, max_retries + 1):
             try:
-                async with httpx.AsyncClient(timeout=10.0, trust_env=False) as client:
+                async with httpx.AsyncClient(timeout=30.0, verify=False) as client:
                     if method == "GET":
                         response = await client.get(url, headers=headers)
                     elif method == "POST":
@@ -158,9 +169,18 @@ class TaskExecutor:
                         await asyncio.sleep(2 ** attempt)
                         continue
 
+                    body_preview = response.text[:500] if response.text else "(empty)"
+                    logger.info(
+                        f"Keep-alive {method} {url} for {domain} → HTTP {response.status_code} "
+                        f"| body: {body_preview}"
+                    )
+
                     # Dual validation
                     ok, message = self.validate_response(response, rule)
-                    logger.info(f"Validation for {domain}: {message}")
+                    if ok:
+                        logger.info(f"Validation PASSED for {domain}: {message}")
+                    else:
+                        logger.warning(f"Validation FAILED for {domain}: {message}")
 
                     return "active" if ok else "expired"
 
@@ -169,15 +189,15 @@ class TaskExecutor:
                 if attempt < max_retries:
                     await asyncio.sleep(2 ** attempt)
                     continue
-                return "active"
+                return "timeout"
             except Exception as e:
                 logger.error(f"Error for {domain} (attempt {attempt}/{max_retries}): {e}")
                 if attempt < max_retries:
                     await asyncio.sleep(2 ** attempt)
                     continue
-                return "active"
+                return "timeout"
 
-        return "active"
+        return "timeout"
 
     def validate_response(
         self,

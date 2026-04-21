@@ -27,27 +27,31 @@ async def main():
     log_dir.mkdir(parents=True, exist_ok=True)
     log_file = log_dir / "agent.log"
 
-    # Create agent-specific logger with PID
-    pid = os.getpid()
-    logger = logging.getLogger(f"agent.{config.device_id}")
-    logger.setLevel(logging.INFO)
-    logger.propagate = False
-
-    # Format with PID
+    # Configure root logger so all src.* module loggers also write to file/console
     formatter = logging.Formatter(
-        fmt=f"%(asctime)s [PID:%(process)d] [%(levelname)s] %(message)s",
+        fmt=f"%(asctime)s [PID:%(process)d] [%(name)s] [%(levelname)s] %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S"
     )
 
-    # File handler
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.INFO)
+    # Clear any pre-existing handlers to avoid duplicate log lines on reload
+    for h in list(root_logger.handlers):
+        root_logger.removeHandler(h)
+
+    # Silence noisy third-party loggers
+    for noisy in ("httpx", "httpcore"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
+
     file_handler = logging.FileHandler(log_file)
     file_handler.setFormatter(formatter)
-    logger.addHandler(file_handler)
+    root_logger.addHandler(file_handler)
 
-    # Console handler
     console_handler = logging.StreamHandler()
     console_handler.setFormatter(formatter)
-    logger.addHandler(console_handler)
+    root_logger.addHandler(console_handler)
+
+    logger = logging.getLogger("agent")
 
     # Authentication: API key directly (no login needed)
     api_key = args.api_key or config._data.get("auth", {}).get("api_key")
