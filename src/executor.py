@@ -21,7 +21,7 @@ class ValidationRule:
         expected_status: int = 200,
         expected_json_path: Optional[str] = None,
         json_operator: str = "exists",
-        expected_json_value: Optional[str] = None
+        expected_json_value: Optional[str] = None,
     ):
         self.url = url
         self.method = method.upper()
@@ -103,7 +103,7 @@ class TaskExecutor:
                     expected_status=response.get("expected_status", 200),
                     expected_json_path=response.get("expected_json_path"),
                     json_operator=response.get("json_operator", "exists"),
-                    expected_json_value=response.get("expected_json_value")
+                    expected_json_value=response.get("expected_json_value"),
                 )
                 logger.info(
                     f"Domain rule for {domain}: {rule.method} {rule.url} "
@@ -155,7 +155,7 @@ class TaskExecutor:
         max_retries = 3
         for attempt in range(1, max_retries + 1):
             try:
-                async with httpx.AsyncClient(timeout=30.0, verify=False) as client:
+                async with httpx.AsyncClient(timeout=30.0, verify=False, follow_redirects=True) as client:
                     if method == "GET":
                         response = await client.get(url, headers=headers)
                     elif method == "POST":

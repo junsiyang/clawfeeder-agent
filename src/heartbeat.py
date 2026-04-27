@@ -10,21 +10,26 @@ class HeartbeatPoller:
         device_id: str,
         device_name: str,
         interval: int = 60,
+        domains: list = None,
         logger: Optional[logging.Logger] = None
     ):
         self.api = api_client
         self.device_id = device_id
         self.device_name = device_name
         self.interval = interval
+        self.domains = domains
         self._stopping = False
         self.logger = logger or logging.getLogger(__name__)
 
     async def poll(self) -> List[Dict]:
         """POST /api/v1/agent/heartbeat and return available tasks"""
-        response = await self.api.post("/api/v1/agent/heartbeat", {
+        payload = {
             "device_id": self.device_id,
             "device_name": self.device_name
-        })
+        }
+        if self.domains:
+            payload["domains"] = self.domains
+        response = await self.api.post("/api/v1/agent/heartbeat", payload)
         return response.get("tasks", [])
 
     async def run(self, callback: Callable[[Dict], Awaitable[None]]):

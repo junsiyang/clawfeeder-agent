@@ -53,3 +53,10 @@ class Config:
     @property
     def master_key(self) -> Optional[str]:
         return os.environ.get('MASTER_KEY') or self._data.get('master_key', '')
+
+    @property
+    def sync_domains(self) -> Optional[list]:
+        domains = self._data.get('sync', {}).get('domains', None)
+        if not domains:
+            return None
+        return [d.strip() for d in domains if d and d.strip()]
