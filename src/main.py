@@ -75,6 +75,7 @@ async def main():
         device_id=args.device_id or config.device_id,
         device_name=args.device_name or config.device_name,
         interval=config.heartbeat_interval,
+        domains=config.sync_domains,
         logger=logger
     )
 
@@ -98,15 +99,20 @@ async def main():
     logger.info("ClawFeeder Agent starting")
     logger.info(f"API: {config.api_base_url}")
     logger.info(f"Device: {config.device_id}")
+    if config.sync_domains:
+        logger.info(f"Sync domains: {', '.join(config.sync_domains)}")
+    else:
+        logger.info("Sync domains: all")
 
     # Wrap to also run GC periodically
     gc_counter = 0
+    sync_domains = config.sync_domains
     async def wrapped_callback(task):
         nonlocal gc_counter
         await executor.execute(task)
         gc_counter += 1
         if gc_counter >= 5:  # GC every 5 heartbeat cycles
-            await run_gc(storage, api)
+            await run_gc(storage, api, sync_domains)
             gc_counter = 0
 
     try:
@@ -128,12 +134,14 @@ async def main():
         logger.info("Shutdown complete")
 
 
-async def run_gc(storage: Storage, api: APIClient):
+async def run_gc(storage: Storage, api: APIClient, sync_domains: list = None):
     """Fetch cloud state and run garbage collection"""
     try:
         response = await api.get("/api/v1/cookies")
         cloud_cookies = response.get("cookies", [])
         cloud_domains = [c["domain"] for c in cloud_cookies if c.get("status") == "active"]
+        if sync_domains:
+            cloud_domains = [d for d in cloud_domains if d in sync_domains]
         await storage.garbage_collect(cloud_domains)
     except Exception as e:
         logger.error(f"GC error: {e}")
