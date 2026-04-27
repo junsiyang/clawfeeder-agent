@@ -104,28 +104,32 @@ async def main():
     else:
         logger.info("Sync domains: all")
 
-    # Wrap to also run GC periodically
-    gc_counter = 0
     sync_domains = config.sync_domains
-    async def wrapped_callback(task):
-        nonlocal gc_counter
-        await executor.execute(task)
-        gc_counter += 1
-        if gc_counter >= 5:  # GC every 5 heartbeat cycles
-            await run_gc(storage, api, sync_domains)
-            gc_counter = 0
+
+    async def gc_loop():
+        """Run GC independently every 5 minutes, regardless of task activity"""
+        while not shutdown_event.is_set():
+            try:
+                await asyncio.wait_for(shutdown_event.wait(), timeout=300)
+                break  # shutdown signaled
+            except asyncio.TimeoutError:
+                pass  # 5 min elapsed, run GC
+            try:
+                await run_gc(storage, api, sync_domains)
+            except Exception as e:
+                logger.error(f"GC loop error: {e}")
 
     try:
-        # Run heartbeat in background
-        heartbeat_task = asyncio.create_task(poller.run(wrapped_callback))
+        heartbeat_task = asyncio.create_task(poller.run(executor.execute))
+        gc_task = asyncio.create_task(gc_loop())
 
         # Wait for shutdown signal
         await shutdown_event.wait()
 
-        # Cancel heartbeat and wait for current task to finish
         heartbeat_task.cancel()
+        gc_task.cancel()
         try:
-            await heartbeat_task
+            await asyncio.gather(heartbeat_task, gc_task, return_exceptions=True)
         except asyncio.CancelledError:
             pass
 
