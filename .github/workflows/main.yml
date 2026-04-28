@@ -1,37 +1,105 @@
 name: Build and Release Agent
 
 on:
-  # 💡 触发器 1：纯手动触发 (强烈推荐 MVP 阶段使用)
-  # 加上这行后，你的 GitHub 页面会出现一个 "Run workflow" 的按钮，随时可以点！
   workflow_dispatch:
-
-  # 💡 触发器 2：基于 Tag 触发 (真正的自动化发版)
-  # 只有当你打上比如 v1.0.0 这种版本标签推送到 GitHub 时，才会触发打包，平时提交代码不会浪费资源。
   push:
     tags:
       - 'v*'
 
 jobs:
-  build-agent:
-    name: Build on ${{ matrix.os }}
-    # 核心魔法：定义一个操作系统矩阵
+  build:
+    name: Build (${{ matrix.target }})
     strategy:
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-    
-    # 让 GitHub 动态分配机器
+        include:
+          - os: ubuntu-latest
+            target: linux
+            artifact: clawfeeder-agent-linux
+          - os: windows-latest
+            target: windows
+            artifact: clawfeeder-agent-windows.exe
+          - os: macos-latest
+            target: macos
+            artifact: clawfeeder-agent-macos
     runs-on: ${{ matrix.os }}
 
     steps:
-      - name: 检出代码
-        uses: actions/checkout@v4
-        
-      - name: 配置 Python 环境
-        uses: actions/setup-python@v5
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-          
-      - name: 安装依赖并打包 (PyInstaller)
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt -r requirements.build.txt
+
+      - name: Generate build config
+        if: runner.os != 'Windows'
+        env:
+          BASE_URL: ${{ secrets.BASE_URL }}
+        shell: bash
         run: |
-          pip install pyinstaller cryptography httpx
-          pyinstaller --onefile agent.py
+          url="${BASE_URL:-https://clawfeeder.treero-ai.com}"
+          printf 'BASE_URL = "%s"\nHEARTBEAT_INTERVAL = 60\n' "$url" > src/_build_config.py
+
+      - name: Generate build config (Windows)
+        if: runner.os == 'Windows'
+        env:
+          BASE_URL: ${{ secrets.BASE_URL }}
+        shell: pwsh
+        run: |
+          $url = if ($env:BASE_URL) { $env:BASE_URL } else { "https://clawfeeder.treero-ai.com" }
+          "BASE_URL = `"$url`"`nHEARTBEAT_INTERVAL = 60" | Out-File -FilePath src/_build_config.py -Encoding utf8NoBOM
+
+      - name: Build binary
+        run: pyinstaller --onefile --name clawfeeder-agent --clean entrypoint.py
+
+      - name: Rename artifact
+        if: runner.os != 'Windows'
+        run: mv dist/clawfeeder-agent dist/${{ matrix.artifact }}
+
+      - name: Rename artifact (Windows)
+        if: runner.os == 'Windows'
+        run: Move-Item dist/clawfeeder-agent.exe dist/${{ matrix.artifact }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: dist/${{ matrix.artifact }}
+
+  release:
+    name: Create Release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Prepare release assets
+        run: |
+          mkdir -p release
+          cp artifacts/clawfeeder-agent-linux/clawfeeder-agent-linux release/
+          cp artifacts/clawfeeder-agent-macos/clawfeeder-agent-macos release/
+          cp artifacts/clawfeeder-agent-windows.exe/clawfeeder-agent-windows.exe release/
+          cp install.sh release/
+          chmod +x release/clawfeeder-agent-linux release/clawfeeder-agent-macos
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create ${{ github.ref_name }} \
+            release/clawfeeder-agent-linux \
+            release/clawfeeder-agent-macos \
+            release/clawfeeder-agent-windows.exe \
+            release/install.sh \
+            --title "ClawFeeder Agent ${{ github.ref_name }}" \
+            --generate-notes
