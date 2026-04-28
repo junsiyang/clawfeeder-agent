@@ -18,12 +18,9 @@ jobs:
           - os: windows-latest
             target: windows
             artifact: clawfeeder-agent-windows.exe
-          - os: macos-13
-            target: macos-x86_64
-            artifact: clawfeeder-agent-macos-x86_64
           - os: macos-latest
-            target: macos-arm64
-            artifact: clawfeeder-agent-macos-arm64
+            target: macos
+            artifact: clawfeeder-agent-macos
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -55,7 +52,13 @@ jobs:
           "BASE_URL = `"$url`"`nHEARTBEAT_INTERVAL = 60" | Out-File -FilePath src/_build_config.py -Encoding utf8NoBOM
 
       - name: Build binary
-        run: pyinstaller --onefile --name clawfeeder-agent --clean entrypoint.py
+        shell: bash
+        run: |
+          extra_args=""
+          if [[ "${{ matrix.target }}" == "macos" ]]; then
+            extra_args="--target-arch universal2"
+          fi
+          pyinstaller --onefile --name clawfeeder-agent --clean $extra_args entrypoint.py
 
       - name: Rename artifact
         if: runner.os != 'Windows'
@@ -90,11 +93,10 @@ jobs:
         run: |
           mkdir -p release
           cp artifacts/clawfeeder-agent-linux/clawfeeder-agent-linux release/
-          cp artifacts/clawfeeder-agent-macos-x86_64/clawfeeder-agent-macos-x86_64 release/
-          cp artifacts/clawfeeder-agent-macos-arm64/clawfeeder-agent-macos-arm64 release/
+          cp artifacts/clawfeeder-agent-macos/clawfeeder-agent-macos release/
           cp artifacts/clawfeeder-agent-windows.exe/clawfeeder-agent-windows.exe release/
           cp install.sh release/
-          chmod +x release/clawfeeder-agent-linux release/clawfeeder-agent-macos-*
+          chmod +x release/clawfeeder-agent-linux release/clawfeeder-agent-macos
 
       - name: Create release
         env:
@@ -102,8 +104,7 @@ jobs:
         run: |
           gh release create ${{ github.ref_name }} \
             release/clawfeeder-agent-linux \
-            release/clawfeeder-agent-macos-x86_64 \
-            release/clawfeeder-agent-macos-arm64 \
+            release/clawfeeder-agent-macos \
             release/clawfeeder-agent-windows.exe \
             release/install.sh \
             --title "ClawFeeder Agent ${{ github.ref_name }}" \
