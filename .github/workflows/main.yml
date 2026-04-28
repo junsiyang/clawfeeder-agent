@@ -9,6 +9,7 @@ on:
 jobs:
   build:
     name: Build (${{ matrix.target }})
+    environment: prod
     strategy:
       matrix:
         include:
