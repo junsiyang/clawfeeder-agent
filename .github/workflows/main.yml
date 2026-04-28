@@ -18,9 +18,12 @@ jobs:
           - os: windows-latest
             target: windows
             artifact: clawfeeder-agent-windows.exe
+          - os: macos-13
+            target: macos-x86_64
+            artifact: clawfeeder-agent-macos-x86_64
           - os: macos-latest
-            target: macos
-            artifact: clawfeeder-agent-macos
+            target: macos-arm64
+            artifact: clawfeeder-agent-macos-arm64
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -87,10 +90,11 @@ jobs:
         run: |
           mkdir -p release
           cp artifacts/clawfeeder-agent-linux/clawfeeder-agent-linux release/
-          cp artifacts/clawfeeder-agent-macos/clawfeeder-agent-macos release/
+          cp artifacts/clawfeeder-agent-macos-x86_64/clawfeeder-agent-macos-x86_64 release/
+          cp artifacts/clawfeeder-agent-macos-arm64/clawfeeder-agent-macos-arm64 release/
           cp artifacts/clawfeeder-agent-windows.exe/clawfeeder-agent-windows.exe release/
           cp install.sh release/
-          chmod +x release/clawfeeder-agent-linux release/clawfeeder-agent-macos
+          chmod +x release/clawfeeder-agent-linux release/clawfeeder-agent-macos-*
 
       - name: Create release
         env:
@@ -98,7 +102,8 @@ jobs:
         run: |
           gh release create ${{ github.ref_name }} \
             release/clawfeeder-agent-linux \
-            release/clawfeeder-agent-macos \
+            release/clawfeeder-agent-macos-x86_64 \
+            release/clawfeeder-agent-macos-arm64 \
             release/clawfeeder-agent-windows.exe \
             release/install.sh \
             --title "ClawFeeder Agent ${{ github.ref_name }}" \
