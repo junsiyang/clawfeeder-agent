@@ -50,7 +50,7 @@ class HeartbeatPoller:
                     except Exception as e:
                         self.logger.error(f"Task execution error: {e}")
             except Exception as e:
-                self.logger.error(f"Poll error: {e}")
+                self.logger.error(f"Poll error [{type(e).__name__}]: {e}")
 
             if not self._stopping:
                 await asyncio.sleep(self.interval)

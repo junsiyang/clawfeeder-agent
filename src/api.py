@@ -5,7 +5,15 @@ class APIClient:
     def __init__(self, base_url: str, api_key: Optional[str] = None):
         self.base_url = base_url.rstrip('/')
         self._api_key = api_key
-        self._client = httpx.AsyncClient(timeout=30.0, trust_env=False)
+        self._client = httpx.AsyncClient(
+            timeout=30.0,
+            trust_env=False,
+            limits=httpx.Limits(
+                max_keepalive_connections=5,
+                keepalive_expiry=30,
+            ),
+            transport=httpx.AsyncHTTPTransport(retries=2),
+        )
 
     def set_api_key(self, api_key: str):
         self._api_key = api_key
