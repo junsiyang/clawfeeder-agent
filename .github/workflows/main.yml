@@ -52,13 +52,7 @@ jobs:
           "BASE_URL = `"$url`"`nHEARTBEAT_INTERVAL = 60" | Out-File -FilePath src/_build_config.py -Encoding utf8NoBOM
 
       - name: Build binary
-        shell: bash
-        run: |
-          extra_args=""
-          if [[ "${{ matrix.target }}" == "macos" ]]; then
-            extra_args="--target-arch universal2"
-          fi
-          pyinstaller --onefile --name clawfeeder-agent --clean $extra_args entrypoint.py
+        run: pyinstaller --onefile --name clawfeeder-agent --clean entrypoint.py
 
       - name: Rename artifact
         if: runner.os != 'Windows'
