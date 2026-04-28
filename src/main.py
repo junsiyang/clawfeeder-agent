@@ -18,7 +18,13 @@ async def main():
     parser.add_argument("--device-id", help="Override device ID")
     parser.add_argument("--device-name", help="Override device name")
     parser.add_argument("--api-key", help="API key for authentication (format: cf_agt_...)")
+    parser.add_argument("--setup", action="store_true", help="Run interactive setup wizard")
     args = parser.parse_args()
+
+    if args.setup:
+        from .setup import run_setup
+        run_setup()
+        return
 
     config = Config(args.config)
 
