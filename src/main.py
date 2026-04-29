@@ -12,9 +12,12 @@ from .executor import TaskExecutor
 from .storage import Storage
 
 
+DEFAULT_CONFIG = str(Path.home() / ".clawfeeder" / "config.yaml")
+
+
 async def main():
     parser = argparse.ArgumentParser(description="ClawFeeder Agent")
-    parser.add_argument("--config", default="config.yaml", help="Config file path")
+    parser.add_argument("--config", default=DEFAULT_CONFIG, help="Config file path")
     parser.add_argument("--device-id", help="Override device ID")
     parser.add_argument("--device-name", help="Override device name")
     parser.add_argument("--api-key", help="API key for authentication (format: cf_agt_...)")
@@ -25,6 +28,13 @@ async def main():
         from .setup import run_setup
         run_setup()
         return
+
+    if not Path(args.config).exists():
+        print(f"No config found at {args.config}, starting setup wizard...\n")
+        from .setup import run_setup
+        run_setup()
+        if not Path(args.config).exists():
+            return
 
     config = Config(args.config)
 

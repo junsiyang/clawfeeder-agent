@@ -156,9 +156,13 @@ def run_setup():
         print(f"{GREEN}[INFO]{NC} Sync:   all domains")
     print()
 
-    # Offer systemd service installation on Linux
+    # Offer background service installation
     if platform.system() == "Linux":
         _offer_systemd_service()
+    elif platform.system() == "Darwin":
+        _offer_launchd_service()
+    elif platform.system() == "Windows":
+        _offer_task_scheduler()
     else:
         print("Start:")
         print(f"  clawfeeder-agent --config {CONFIG_FILE}")
@@ -167,6 +171,9 @@ def run_setup():
 
 SERVICE_NAME = "clawfeeder-agent"
 SERVICE_PATH = Path(f"/etc/systemd/system/{SERVICE_NAME}.service")
+
+LAUNCHD_LABEL = "com.clawfeeder.agent"
+LAUNCHD_PLIST = Path.home() / "Library" / "LaunchAgents" / f"{LAUNCHD_LABEL}.plist"
 
 
 def _find_binary() -> str:
@@ -258,4 +265,200 @@ WantedBy=multi-user.target
     print("  View logs:     journalctl -u clawfeeder-agent -f")
     print("  Stop:          sudo systemctl stop clawfeeder-agent")
     print("  Disable:       sudo systemctl disable clawfeeder-agent")
+    print()
+
+
+def _is_launchd_loaded() -> bool:
+    result = subprocess.run(
+        ["launchctl", "list", LAUNCHD_LABEL],
+        capture_output=True, text=True,
+    )
+    return result.returncode == 0
+
+
+def _offer_launchd_service():
+    """Ask the user whether to install a macOS launchd service."""
+    already_installed = LAUNCHD_PLIST.exists()
+
+    if already_installed:
+        is_loaded = _is_launchd_loaded()
+
+        if is_loaded:
+            print(f"{GREEN}[INFO]{NC} launchd service is already running.")
+            answer = input("Restart service to apply new config? [Y/n]: ").strip().lower()
+            if answer in ("n", "no"):
+                print()
+                return
+            subprocess.run(["launchctl", "unload", str(LAUNCHD_PLIST)], capture_output=True)
+            subprocess.run(["launchctl", "load", str(LAUNCHD_PLIST)], check=True)
+            print(f"{GREEN}[OK]{NC} Service restarted.")
+            print()
+            return
+        else:
+            answer = input("Reinstall and start launchd service? [Y/n]: ").strip().lower()
+    else:
+        answer = input("Install as background service (auto-start on login)? [Y/n]: ").strip().lower()
+
+    if answer in ("n", "no"):
+        print()
+        print("Start manually:")
+        print(f"  clawfeeder-agent --config {CONFIG_FILE}")
+        print()
+        return
+
+    binary = _find_binary()
+    if not binary:
+        print(f"{RED}[ERROR]{NC} Cannot find clawfeeder-agent binary.")
+        print("  Copy the binary to /usr/local/bin/ first, then re-run --setup.")
+        return
+
+    log_dir = CONFIG_DIR / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+
+    plist = f"""<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>{LAUNCHD_LABEL}</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>{binary}</string>
+        <string>--config</string>
+        <string>{CONFIG_FILE}</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+    </dict>
+    <key>StandardOutPath</key>
+    <string>{log_dir}/agent.log</string>
+    <key>StandardErrorPath</key>
+    <string>{log_dir}/agent.log</string>
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+</dict>
+</plist>
+"""
+
+    LAUNCHD_PLIST.parent.mkdir(parents=True, exist_ok=True)
+    LAUNCHD_PLIST.write_text(plist)
+
+    subprocess.run(["launchctl", "unload", str(LAUNCHD_PLIST)], capture_output=True)
+    subprocess.run(["launchctl", "load", str(LAUNCHD_PLIST)], check=True)
+
+    print()
+    print(f"{GREEN}[OK]{NC} Service installed and started.")
+    print()
+    print(f"  Check status:  launchctl list {LAUNCHD_LABEL}")
+    print(f"  View logs:     tail -f {log_dir}/agent.log")
+    print(f"  Stop:          launchctl unload {LAUNCHD_PLIST}")
+    print(f"  Remove:        rm {LAUNCHD_PLIST}")
+    print()
+
+
+TASK_NAME = "ClawFeederAgent"
+
+
+def _is_task_scheduled() -> bool:
+    result = subprocess.run(
+        ["schtasks", "/Query", "/TN", TASK_NAME],
+        capture_output=True, text=True,
+    )
+    return result.returncode == 0
+
+
+def _is_task_running() -> bool:
+    result = subprocess.run(
+        ["schtasks", "/Query", "/TN", TASK_NAME, "/FO", "CSV", "/V"],
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        return False
+    return "Running" in result.stdout
+
+
+def _offer_task_scheduler():
+    """Ask the user whether to install a Windows Task Scheduler task."""
+    already_installed = _is_task_scheduled()
+
+    if already_installed:
+        is_running = _is_task_running()
+
+        if is_running:
+            print(f"{GREEN}[INFO]{NC} Scheduled task is already running.")
+            answer = input("Restart task to apply new config? [Y/n]: ").strip().lower()
+            if answer in ("n", "no"):
+                print()
+                return
+            subprocess.run(
+                ["schtasks", "/End", "/TN", TASK_NAME],
+                capture_output=True,
+            )
+            subprocess.run(
+                ["schtasks", "/Run", "/TN", TASK_NAME],
+                check=True,
+            )
+            print(f"{GREEN}[OK]{NC} Task restarted.")
+            print()
+            return
+        else:
+            answer = input("Reinstall and start scheduled task? [Y/n]: ").strip().lower()
+    else:
+        answer = input("Install as scheduled task (auto-start on logon)? [Y/n]: ").strip().lower()
+
+    if answer in ("n", "no"):
+        print()
+        print("Start manually:")
+        print(f"  clawfeeder-agent --config {CONFIG_FILE}")
+        print()
+        return
+
+    binary = _find_binary()
+    if not binary:
+        print(f"{RED}[ERROR]{NC} Cannot find clawfeeder-agent binary.")
+        print("  Copy the binary to a permanent location first, then re-run --setup.")
+        return
+
+    # Remove existing task before recreating
+    if already_installed:
+        subprocess.run(
+            ["schtasks", "/Delete", "/TN", TASK_NAME, "/F"],
+            capture_output=True,
+        )
+
+    # Create task that runs at logon
+    result = subprocess.run(
+        [
+            "schtasks", "/Create",
+            "/TN", TASK_NAME,
+            "/TR", f'"{binary}" --config "{CONFIG_FILE}"',
+            "/SC", "ONLOGON",
+            "/RL", "HIGHEST",
+            "/F",
+        ],
+        capture_output=True, text=True,
+    )
+
+    if result.returncode != 0:
+        print(f"{RED}[ERROR]{NC} Failed to create scheduled task.")
+        if "Access is denied" in result.stderr:
+            print("  Try running as Administrator.")
+        else:
+            print(f"  {result.stderr.strip()}")
+        return
+
+    # Start the task now
+    subprocess.run(["schtasks", "/Run", "/TN", TASK_NAME], check=True)
+
+    print()
+    print(f"{GREEN}[OK]{NC} Scheduled task installed and started.")
+    print()
+    print(f"  Check status:  schtasks /Query /TN {TASK_NAME}")
+    print(f"  Stop:          schtasks /End /TN {TASK_NAME}")
+    print(f"  Remove:        schtasks /Delete /TN {TASK_NAME} /F")
     print()
