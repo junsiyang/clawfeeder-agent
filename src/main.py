@@ -154,6 +154,9 @@ async def main():
         logger.info("Shutdown complete")
 
 
+_gc_logger = logging.getLogger("agent")
+
+
 async def run_gc(storage: Storage, api: APIClient, sync_domains: list = None):
     """Fetch cloud state and run garbage collection"""
     try:
@@ -164,7 +167,7 @@ async def run_gc(storage: Storage, api: APIClient, sync_domains: list = None):
             cloud_domains = [d for d in cloud_domains if d in sync_domains]
         await storage.garbage_collect(cloud_domains)
     except Exception as e:
-        logger.error(f"GC error: {e}")
+        _gc_logger.error(f"GC error: {e}")
 
 
 if __name__ == "__main__":
