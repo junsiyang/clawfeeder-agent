@@ -1,8 +1,12 @@
 """Interactive setup wizard — replaces install.sh."""
 
 import getpass
+import os
 import platform
+import shutil
 import socket
+import subprocess
+import sys
 import uuid
 from pathlib import Path
 
@@ -151,6 +155,83 @@ def run_setup():
     else:
         print(f"{GREEN}[INFO]{NC} Sync:   all domains")
     print()
-    print("Start:")
-    print(f"  clawfeeder-agent --config {CONFIG_FILE}")
+
+    # Offer systemd service installation on Linux
+    if platform.system() == "Linux":
+        _offer_systemd_service()
+    else:
+        print("Start:")
+        print(f"  clawfeeder-agent --config {CONFIG_FILE}")
+        print()
+
+
+SERVICE_NAME = "clawfeeder-agent"
+SERVICE_PATH = Path(f"/etc/systemd/system/{SERVICE_NAME}.service")
+
+
+def _find_binary() -> str:
+    """Find the clawfeeder-agent binary path."""
+    # PyInstaller frozen binary
+    if getattr(sys, "frozen", False):
+        return sys.executable
+    # Installed via pip / in PATH
+    found = shutil.which("clawfeeder-agent")
+    if found:
+        return found
+    return ""
+
+
+def _offer_systemd_service():
+    """Ask the user whether to install a systemd service."""
+    answer = input(f"Install as systemd service (auto-start on boot)? [Y/n]: ").strip().lower()
+    if answer in ("n", "no"):
+        print()
+        print("Start manually:")
+        print(f"  clawfeeder-agent --config {CONFIG_FILE}")
+        print()
+        return
+
+    binary = _find_binary()
+    if not binary:
+        print(f"{RED}[ERROR]{NC} Cannot find clawfeeder-agent binary.")
+        print("  Copy the binary to /usr/local/bin/ first, then re-run --setup.")
+        return
+
+    user = os.environ.get("SUDO_USER") or os.environ.get("USER") or "root"
+    home = Path(f"~{user}").expanduser() if user != "root" else Path.home()
+
+    unit = f"""[Unit]
+Description=ClawFeeder Agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User={user}
+ExecStart={binary} --config {home}/.clawfeeder/config.yaml
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+"""
+
+    try:
+        SERVICE_PATH.write_text(unit)
+    except PermissionError:
+        print(f"{RED}[ERROR]{NC} Permission denied writing {SERVICE_PATH}")
+        print(f"  Re-run with sudo: sudo {binary} --setup")
+        return
+
+    subprocess.run(["systemctl", "daemon-reload"], check=True)
+    subprocess.run(["systemctl", "enable", SERVICE_NAME], check=True)
+    subprocess.run(["systemctl", "restart", SERVICE_NAME], check=True)
+
+    print()
+    print(f"{GREEN}[OK]{NC} Service installed and started.")
+    print()
+    print("  Check status:  systemctl status clawfeeder-agent")
+    print("  View logs:     journalctl -u clawfeeder-agent -f")
+    print("  Stop:          sudo systemctl stop clawfeeder-agent")
+    print("  Disable:       sudo systemctl disable clawfeeder-agent")
     print()
