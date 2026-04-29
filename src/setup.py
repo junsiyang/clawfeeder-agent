@@ -183,7 +183,31 @@ def _find_binary() -> str:
 
 def _offer_systemd_service():
     """Ask the user whether to install a systemd service."""
-    answer = input(f"Install as systemd service (auto-start on boot)? [Y/n]: ").strip().lower()
+    already_installed = SERVICE_PATH.exists()
+
+    if already_installed:
+        # Check if service is running
+        result = subprocess.run(
+            ["systemctl", "is-active", SERVICE_NAME],
+            capture_output=True, text=True,
+        )
+        is_running = result.stdout.strip() == "active"
+
+        if is_running:
+            print(f"{GREEN}[INFO]{NC} systemd service is already running.")
+            answer = input("Restart service to apply new config? [Y/n]: ").strip().lower()
+            if answer in ("n", "no"):
+                print()
+                return
+            subprocess.run(["systemctl", "restart", SERVICE_NAME], check=True)
+            print(f"{GREEN}[OK]{NC} Service restarted.")
+            print()
+            return
+        else:
+            answer = input("Reinstall and start systemd service? [Y/n]: ").strip().lower()
+    else:
+        answer = input("Install as systemd service (auto-start on boot)? [Y/n]: ").strip().lower()
+
     if answer in ("n", "no"):
         print()
         print("Start manually:")
