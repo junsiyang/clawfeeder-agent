@@ -430,8 +430,17 @@ def _is_task_running() -> bool:
     return "Running" in result.stdout
 
 
+def _is_windows_admin() -> bool:
+    try:
+        import ctypes
+        return ctypes.windll.shell32.IsUserAnAdmin() != 0
+    except Exception:
+        return False
+
+
 def _offer_task_scheduler():
     """Ask the user whether to install a Windows Task Scheduler task."""
+    is_admin = _is_windows_admin()
     already_installed = _is_task_scheduled()
 
     if already_installed:
@@ -457,7 +466,8 @@ def _offer_task_scheduler():
         else:
             answer = input("Reinstall and start scheduled task? [Y/n]: ").strip().lower()
     else:
-        answer = input("Install as scheduled task (auto-start on logon)? [Y/n]: ").strip().lower()
+        mode_hint = "admin" if is_admin else "user-level, no admin needed"
+        answer = input(f"Install as scheduled task ({mode_hint})? [Y/n]: ").strip().lower()
 
     if answer in ("n", "no"):
         print()
@@ -479,25 +489,20 @@ def _offer_task_scheduler():
             capture_output=True,
         )
 
-    # Create task that runs at logon
-    result = subprocess.run(
-        [
-            "schtasks", "/Create",
-            "/TN", TASK_NAME,
-            "/TR", f'"{binary}" --config "{CONFIG_FILE}"',
-            "/SC", "ONLOGON",
-            "/RL", "HIGHEST",
-            "/F",
-        ],
-        capture_output=True, text=True,
-    )
+    # Create task: admin gets HIGHEST run-level, normal user gets LIMITED
+    cmd = [
+        "schtasks", "/Create",
+        "/TN", TASK_NAME,
+        "/TR", f'"{binary}" --config "{CONFIG_FILE}"',
+        "/SC", "ONLOGON",
+        "/RL", "HIGHEST" if is_admin else "LIMITED",
+        "/F",
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True)
 
     if result.returncode != 0:
         print(f"{RED}[ERROR]{NC} Failed to create scheduled task.")
-        if "Access is denied" in result.stderr:
-            print("  Try running as Administrator.")
-        else:
-            print(f"  {result.stderr.strip()}")
+        print(f"  {result.stderr.strip()}")
         return
 
     # Start the task now
