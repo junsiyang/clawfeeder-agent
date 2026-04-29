@@ -170,7 +170,9 @@ def run_setup():
 
 
 SERVICE_NAME = "clawfeeder-agent"
-SERVICE_PATH = Path(f"/etc/systemd/system/{SERVICE_NAME}.service")
+SYSTEM_SERVICE_PATH = Path(f"/etc/systemd/system/{SERVICE_NAME}.service")
+USER_SERVICE_DIR = Path.home() / ".config" / "systemd" / "user"
+USER_SERVICE_PATH = USER_SERVICE_DIR / f"{SERVICE_NAME}.service"
 
 LAUNCHD_LABEL = "com.clawfeeder.agent"
 LAUNCHD_PLIST = Path.home() / "Library" / "LaunchAgents" / f"{LAUNCHD_LABEL}.plist"
@@ -189,13 +191,22 @@ def _find_binary() -> str:
 
 
 def _offer_systemd_service():
-    """Ask the user whether to install a systemd service."""
-    already_installed = SERVICE_PATH.exists()
+    """Ask the user whether to install a systemd service (system-level or user-level)."""
+    is_root = os.geteuid() == 0
+    user_mode = not is_root
+
+    if user_mode:
+        service_path = USER_SERVICE_PATH
+        ctl = ["systemctl", "--user"]
+    else:
+        service_path = SYSTEM_SERVICE_PATH
+        ctl = ["systemctl"]
+
+    already_installed = service_path.exists()
 
     if already_installed:
-        # Check if service is running
         result = subprocess.run(
-            ["systemctl", "is-active", SERVICE_NAME],
+            ctl + ["is-active", SERVICE_NAME],
             capture_output=True, text=True,
         )
         is_running = result.stdout.strip() == "active"
@@ -206,14 +217,15 @@ def _offer_systemd_service():
             if answer in ("n", "no"):
                 print()
                 return
-            subprocess.run(["systemctl", "restart", SERVICE_NAME], check=True)
+            subprocess.run(ctl + ["restart", SERVICE_NAME], check=True)
             print(f"{GREEN}[OK]{NC} Service restarted.")
             print()
             return
         else:
             answer = input("Reinstall and start systemd service? [Y/n]: ").strip().lower()
     else:
-        answer = input("Install as systemd service (auto-start on boot)? [Y/n]: ").strip().lower()
+        mode_hint = "user-level, no sudo needed" if user_mode else "system-level"
+        answer = input(f"Install as systemd service ({mode_hint})? [Y/n]: ").strip().lower()
 
     if answer in ("n", "no"):
         print()
@@ -228,10 +240,47 @@ def _offer_systemd_service():
         print("  Copy the binary to /usr/local/bin/ first, then re-run --setup.")
         return
 
-    user = os.environ.get("SUDO_USER") or os.environ.get("USER") or "root"
-    home = Path(f"~{user}").expanduser() if user != "root" else Path.home()
+    if user_mode:
+        unit = f"""[Unit]
+Description=ClawFeeder Agent
+After=network-online.target
+Wants=network-online.target
 
-    unit = f"""[Unit]
+[Service]
+Type=simple
+ExecStart={binary} --config {CONFIG_FILE}
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=default.target
+"""
+        USER_SERVICE_DIR.mkdir(parents=True, exist_ok=True)
+        service_path.write_text(unit)
+
+        subprocess.run(ctl + ["daemon-reload"], check=True)
+        subprocess.run(ctl + ["enable", SERVICE_NAME], check=True)
+        subprocess.run(ctl + ["restart", SERVICE_NAME], check=True)
+
+        # enable-linger so user services survive logout
+        user = os.environ.get("USER", "")
+        if user:
+            subprocess.run(["loginctl", "enable-linger", user], capture_output=True)
+
+        print()
+        print(f"{GREEN}[OK]{NC} User service installed and started.")
+        print()
+        print(f"  Check status:  systemctl --user status {SERVICE_NAME}")
+        print(f"  View logs:     journalctl --user -u {SERVICE_NAME} -f")
+        print(f"  Stop:          systemctl --user stop {SERVICE_NAME}")
+        print(f"  Disable:       systemctl --user disable {SERVICE_NAME}")
+        print()
+
+    else:
+        user = os.environ.get("SUDO_USER") or os.environ.get("USER") or "root"
+        home = Path(f"~{user}").expanduser() if user != "root" else Path.home()
+
+        unit = f"""[Unit]
 Description=ClawFeeder Agent
 After=network-online.target
 Wants=network-online.target
@@ -246,26 +295,25 @@ RestartSec=10
 [Install]
 WantedBy=multi-user.target
 """
+        try:
+            service_path.write_text(unit)
+        except PermissionError:
+            print(f"{RED}[ERROR]{NC} Permission denied writing {service_path}")
+            print(f"  Re-run with sudo: sudo {binary} --setup")
+            return
 
-    try:
-        SERVICE_PATH.write_text(unit)
-    except PermissionError:
-        print(f"{RED}[ERROR]{NC} Permission denied writing {SERVICE_PATH}")
-        print(f"  Re-run with sudo: sudo {binary} --setup")
-        return
+        subprocess.run(ctl + ["daemon-reload"], check=True)
+        subprocess.run(ctl + ["enable", SERVICE_NAME], check=True)
+        subprocess.run(ctl + ["restart", SERVICE_NAME], check=True)
 
-    subprocess.run(["systemctl", "daemon-reload"], check=True)
-    subprocess.run(["systemctl", "enable", SERVICE_NAME], check=True)
-    subprocess.run(["systemctl", "restart", SERVICE_NAME], check=True)
-
-    print()
-    print(f"{GREEN}[OK]{NC} Service installed and started.")
-    print()
-    print("  Check status:  systemctl status clawfeeder-agent")
-    print("  View logs:     journalctl -u clawfeeder-agent -f")
-    print("  Stop:          sudo systemctl stop clawfeeder-agent")
-    print("  Disable:       sudo systemctl disable clawfeeder-agent")
-    print()
+        print()
+        print(f"{GREEN}[OK]{NC} System service installed and started.")
+        print()
+        print(f"  Check status:  systemctl status {SERVICE_NAME}")
+        print(f"  View logs:     journalctl -u {SERVICE_NAME} -f")
+        print(f"  Stop:          sudo systemctl stop {SERVICE_NAME}")
+        print(f"  Disable:       sudo systemctl disable {SERVICE_NAME}")
+        print()
 
 
 def _is_launchd_loaded() -> bool:
