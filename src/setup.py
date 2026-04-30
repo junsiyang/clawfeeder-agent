@@ -190,12 +190,25 @@ def _find_binary() -> str:
     return ""
 
 
+def _ensure_user_session_env():
+    """Set XDG_RUNTIME_DIR and DBUS_SESSION_BUS_ADDRESS if missing (SSH sessions)."""
+    uid = os.getuid()
+    runtime_dir = f"/run/user/{uid}"
+    if not os.environ.get("XDG_RUNTIME_DIR") and os.path.isdir(runtime_dir):
+        os.environ["XDG_RUNTIME_DIR"] = runtime_dir
+    if not os.environ.get("DBUS_SESSION_BUS_ADDRESS"):
+        bus_path = f"unix:path={runtime_dir}/bus"
+        if os.path.exists(f"{runtime_dir}/bus"):
+            os.environ["DBUS_SESSION_BUS_ADDRESS"] = bus_path
+
+
 def _offer_systemd_service():
     """Ask the user whether to install a systemd service (system-level or user-level)."""
     is_root = os.geteuid() == 0
     user_mode = not is_root
 
     if user_mode:
+        _ensure_user_session_env()
         service_path = USER_SERVICE_PATH
         ctl = ["systemctl", "--user"]
     else:
@@ -258,9 +271,20 @@ WantedBy=default.target
         USER_SERVICE_DIR.mkdir(parents=True, exist_ok=True)
         service_path.write_text(unit)
 
-        subprocess.run(ctl + ["daemon-reload"], check=True)
-        subprocess.run(ctl + ["enable", SERVICE_NAME], check=True)
-        subprocess.run(ctl + ["restart", SERVICE_NAME], check=True)
+        try:
+            subprocess.run(ctl + ["daemon-reload"], check=True)
+            subprocess.run(ctl + ["enable", SERVICE_NAME], check=True)
+            subprocess.run(ctl + ["restart", SERVICE_NAME], check=True)
+        except subprocess.CalledProcessError:
+            print()
+            print(f"{RED}[ERROR]{NC} Failed to start user-level service.")
+            print("  This usually happens in SSH sessions without a D-Bus session.")
+            print()
+            print("  Options:")
+            print(f"    1. Use system-level service:  sudo {binary} --setup")
+            print(f"    2. Login via desktop/console and re-run:  {binary} --setup")
+            print()
+            return
 
         # enable-linger so user services survive logout
         user = os.environ.get("USER", "")
