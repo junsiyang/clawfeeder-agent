@@ -16,9 +16,6 @@ jobs:
           - os: ubuntu-22.04
             target: linux
             artifact: clawfeeder-agent-linux
-          - os: windows-latest
-            target: windows
-            artifact: clawfeeder-agent-windows.exe
           - os: macos-15-intel
             target: macos-x86_64
             artifact: clawfeeder-agent-macos-x86_64
@@ -38,7 +35,6 @@ jobs:
         run: pip install -r requirements.txt -r requirements.build.txt
 
       - name: Generate build config
-        if: runner.os != 'Windows'
         env:
           BASE_URL: ${{ secrets.BASE_URL }}
         shell: bash
@@ -46,25 +42,11 @@ jobs:
           url="${BASE_URL:-https://clawfeeder.treero-ai.com}"
           printf 'BASE_URL = "%s"\nHEARTBEAT_INTERVAL = 60\n' "$url" > src/_build_config.py
 
-      - name: Generate build config (Windows)
-        if: runner.os == 'Windows'
-        env:
-          BASE_URL: ${{ secrets.BASE_URL }}
-        shell: pwsh
-        run: |
-          $url = if ($env:BASE_URL) { $env:BASE_URL } else { "https://clawfeeder.treero-ai.com" }
-          "BASE_URL = `"$url`"`nHEARTBEAT_INTERVAL = 60" | Out-File -FilePath src/_build_config.py -Encoding utf8NoBOM
-
       - name: Build binary
         run: pyinstaller --onefile --name clawfeeder-agent --clean entrypoint.py
 
       - name: Rename artifact
-        if: runner.os != 'Windows'
         run: mv dist/clawfeeder-agent dist/${{ matrix.artifact }}
-
-      - name: Rename artifact (Windows)
-        if: runner.os == 'Windows'
-        run: Move-Item dist/clawfeeder-agent.exe dist/${{ matrix.artifact }}
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -93,7 +75,6 @@ jobs:
           cp artifacts/clawfeeder-agent-linux/clawfeeder-agent-linux release/
           cp artifacts/clawfeeder-agent-macos-x86_64/clawfeeder-agent-macos-x86_64 release/
           cp artifacts/clawfeeder-agent-macos-arm64/clawfeeder-agent-macos-arm64 release/
-          cp artifacts/clawfeeder-agent-windows.exe/clawfeeder-agent-windows.exe release/
           cp install.sh release/
           chmod +x release/clawfeeder-agent-linux release/clawfeeder-agent-macos-*
 
@@ -105,7 +86,6 @@ jobs:
             release/clawfeeder-agent-linux \
             release/clawfeeder-agent-macos-x86_64 \
             release/clawfeeder-agent-macos-arm64 \
-            release/clawfeeder-agent-windows.exe \
             release/install.sh \
             --title "ClawFeeder Agent ${{ github.ref_name }}" \
             --generate-notes
