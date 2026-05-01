@@ -7,6 +7,7 @@ import shutil
 import socket
 import subprocess
 import sys
+import time
 import uuid
 from pathlib import Path
 
@@ -56,12 +57,55 @@ def _prompt(label: str, existing: str = "", secret: bool = False, required: bool
     return value
 
 
+SERVICE_NAME = "clawfeeder-agent"
+SYSTEM_SERVICE_PATH = Path(f"/etc/systemd/system/{SERVICE_NAME}.service")
+USER_SERVICE_DIR = Path.home() / ".config" / "systemd" / "user"
+USER_SERVICE_PATH = USER_SERVICE_DIR / f"{SERVICE_NAME}.service"
+
+LAUNCHD_LABEL = "com.clawfeeder.agent"
+LAUNCHD_PLIST = Path.home() / "Library" / "LaunchAgents" / f"{LAUNCHD_LABEL}.plist"
+
+
+def _stop_existing_agent():
+    """Stop any running clawfeeder-agent process before re-setup."""
+    system = platform.system()
+
+    if system == "Linux":
+        subprocess.run(
+            ["systemctl", "stop", SERVICE_NAME],
+            capture_output=True,
+        )
+        subprocess.run(
+            ["systemctl", "--user", "stop", SERVICE_NAME],
+            capture_output=True,
+        )
+        subprocess.run(
+            ["pkill", "-f", "clawfeeder-agent --config"],
+            capture_output=True,
+        )
+
+    elif system == "Darwin":
+        if LAUNCHD_PLIST.exists():
+            subprocess.run(
+                ["launchctl", "unload", str(LAUNCHD_PLIST)],
+                capture_output=True,
+            )
+        subprocess.run(
+            ["pkill", "-f", "clawfeeder-agent --config"],
+            capture_output=True,
+        )
+
+    time.sleep(1)
+
+
 def run_setup():
     print()
     print("==============================================")
     print("  ClawFeeder Agent Setup")
     print("==============================================")
     print()
+
+    _stop_existing_agent()
 
     existing = _load_existing()
     if existing:
@@ -162,21 +206,10 @@ def run_setup():
         _offer_systemd_service()
     elif platform.system() == "Darwin":
         _offer_launchd_service()
-    elif platform.system() == "Windows":
-        _offer_task_scheduler()
     else:
         print("Start:")
         print(f"  clawfeeder-agent --config {CONFIG_FILE}")
         print()
-
-
-SERVICE_NAME = "clawfeeder-agent"
-SYSTEM_SERVICE_PATH = Path(f"/etc/systemd/system/{SERVICE_NAME}.service")
-USER_SERVICE_DIR = Path.home() / ".config" / "systemd" / "user"
-USER_SERVICE_PATH = USER_SERVICE_DIR / f"{SERVICE_NAME}.service"
-
-LAUNCHD_LABEL = "com.clawfeeder.agent"
-LAUNCHD_PLIST = Path.home() / "Library" / "LaunchAgents" / f"{LAUNCHD_LABEL}.plist"
 
 
 def _find_binary() -> str:
@@ -490,109 +523,3 @@ def _offer_launchd_service():
     print()
 
 
-TASK_NAME = "ClawFeederAgent"
-
-
-def _is_task_scheduled() -> bool:
-    result = subprocess.run(
-        ["schtasks", "/Query", "/TN", TASK_NAME],
-        capture_output=True, text=True,
-    )
-    return result.returncode == 0
-
-
-def _is_task_running() -> bool:
-    result = subprocess.run(
-        ["schtasks", "/Query", "/TN", TASK_NAME, "/FO", "CSV", "/V"],
-        capture_output=True, text=True,
-    )
-    if result.returncode != 0:
-        return False
-    return "Running" in result.stdout
-
-
-def _is_windows_admin() -> bool:
-    try:
-        import ctypes
-        return ctypes.windll.shell32.IsUserAnAdmin() != 0
-    except Exception:
-        return False
-
-
-def _offer_task_scheduler():
-    """Ask the user whether to install a Windows Task Scheduler task."""
-    is_admin = _is_windows_admin()
-    already_installed = _is_task_scheduled()
-
-    if already_installed:
-        is_running = _is_task_running()
-
-        if is_running:
-            print(f"{GREEN}[INFO]{NC} Scheduled task is already running.")
-            answer = input("Restart task to apply new config? [Y/n]: ").strip().lower()
-            if answer in ("n", "no"):
-                print()
-                return
-            subprocess.run(
-                ["schtasks", "/End", "/TN", TASK_NAME],
-                capture_output=True,
-            )
-            subprocess.run(
-                ["schtasks", "/Run", "/TN", TASK_NAME],
-                check=True,
-            )
-            print(f"{GREEN}[OK]{NC} Task restarted.")
-            print()
-            return
-        else:
-            answer = input("Reinstall and start scheduled task? [Y/n]: ").strip().lower()
-    else:
-        mode_hint = "admin" if is_admin else "user-level, no admin needed"
-        answer = input(f"Install as scheduled task ({mode_hint})? [Y/n]: ").strip().lower()
-
-    if answer in ("n", "no"):
-        print()
-        print("Start manually:")
-        print(f"  clawfeeder-agent --config {CONFIG_FILE}")
-        print()
-        return
-
-    binary = _find_binary()
-    if not binary:
-        print(f"{RED}[ERROR]{NC} Cannot find clawfeeder-agent binary.")
-        print("  Copy the binary to a permanent location first, then re-run --setup.")
-        return
-
-    # Remove existing task before recreating
-    if already_installed:
-        subprocess.run(
-            ["schtasks", "/Delete", "/TN", TASK_NAME, "/F"],
-            capture_output=True,
-        )
-
-    # Create task: admin gets HIGHEST run-level, normal user gets LIMITED
-    cmd = [
-        "schtasks", "/Create",
-        "/TN", TASK_NAME,
-        "/TR", f'"{binary}" --config "{CONFIG_FILE}"',
-        "/SC", "ONLOGON",
-        "/RL", "HIGHEST" if is_admin else "LIMITED",
-        "/F",
-    ]
-    result = subprocess.run(cmd, capture_output=True, text=True)
-
-    if result.returncode != 0:
-        print(f"{RED}[ERROR]{NC} Failed to create scheduled task.")
-        print(f"  {result.stderr.strip()}")
-        return
-
-    # Start the task now
-    subprocess.run(["schtasks", "/Run", "/TN", TASK_NAME], check=True)
-
-    print()
-    print(f"{GREEN}[OK]{NC} Scheduled task installed and started.")
-    print()
-    print(f"  Check status:  schtasks /Query /TN {TASK_NAME}")
-    print(f"  Stop:          schtasks /End /TN {TASK_NAME}")
-    print(f"  Remove:        schtasks /Delete /TN {TASK_NAME} /F")
-    print()
