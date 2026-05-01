@@ -204,6 +204,53 @@ def _has_user_dbus():
     return False
 
 
+CRONTAB_TAG = "# clawfeeder-agent"
+
+
+def _install_crontab(binary):
+    """Install or update @reboot crontab entry."""
+    entry = f"@reboot {binary} --config {CONFIG_FILE} {CRONTAB_TAG}"
+
+    # Read existing crontab
+    result = subprocess.run(["crontab", "-l"], capture_output=True, text=True)
+    existing = result.stdout if result.returncode == 0 else ""
+
+    lines = existing.splitlines()
+    has_existing = any(CRONTAB_TAG in line for line in lines)
+
+    if has_existing:
+        # Replace existing entry
+        lines = [entry if CRONTAB_TAG in line else line for line in lines]
+        print(f"{GREEN}[INFO]{NC} Updating existing crontab entry.")
+    else:
+        lines.append(entry)
+
+    new_crontab = "\n".join(lines).strip() + "\n"
+    proc = subprocess.run(
+        ["crontab", "-"], input=new_crontab, text=True, capture_output=True,
+    )
+    if proc.returncode != 0:
+        print(f"{RED}[ERROR]{NC} Failed to install crontab: {proc.stderr.strip()}")
+        return
+
+    # Start the process now with nohup
+    subprocess.Popen(
+        ["nohup", binary, "--config", str(CONFIG_FILE)],
+        stdout=open(os.devnull, "w"),
+        stderr=open(os.devnull, "w"),
+        start_new_session=True,
+    )
+
+    print()
+    print(f"{GREEN}[OK]{NC} Crontab @reboot installed and agent started.")
+    print()
+    print(f"  View crontab:  crontab -l")
+    print(f"  Check process: ps aux | grep clawfeeder")
+    print(f"  Stop:          pkill -f clawfeeder-agent")
+    print(f"  Uninstall:     crontab -l | grep -v '{CRONTAB_TAG}' | crontab -")
+    print()
+
+
 def _offer_systemd_service():
     """Ask the user whether to install a systemd service (system-level or user-level)."""
     is_root = os.geteuid() == 0
@@ -218,9 +265,15 @@ def _offer_systemd_service():
         print(f"{YELLOW}[WARN]{NC} No D-Bus user session detected (common in SSH).")
         print(f"  User-level systemd service won't work in this environment.")
         print()
-        print(f"  Run with sudo to install system-level service:")
-        print(f"    sudo {binary} --setup")
+        print(f"  Options:")
+        print(f"    1. Use system-level service:  sudo {binary} --setup")
+        print(f"    2. Use crontab @reboot (no sudo needed)")
         print()
+        answer = input("Install via crontab @reboot? [Y/n]: ").strip().lower()
+        if answer in ("n", "no"):
+            print()
+            return
+        _install_crontab(binary)
         return
 
     if user_mode:
