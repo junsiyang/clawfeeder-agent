@@ -18,6 +18,7 @@ CONFIG_FILE = CONFIG_DIR / "config.yaml"
 
 GREEN = "\033[0;32m"
 RED = "\033[0;31m"
+YELLOW = "\033[0;33m"
 CYAN = "\033[0;36m"
 NC = "\033[0m"
 
@@ -190,25 +191,39 @@ def _find_binary() -> str:
     return ""
 
 
-def _ensure_user_session_env():
-    """Set XDG_RUNTIME_DIR and DBUS_SESSION_BUS_ADDRESS if missing (SSH sessions)."""
+def _has_user_dbus():
+    """Check if D-Bus user session is available."""
     uid = os.getuid()
-    runtime_dir = f"/run/user/{uid}"
-    if not os.environ.get("XDG_RUNTIME_DIR") and os.path.isdir(runtime_dir):
-        os.environ["XDG_RUNTIME_DIR"] = runtime_dir
-    if not os.environ.get("DBUS_SESSION_BUS_ADDRESS"):
-        bus_path = f"unix:path={runtime_dir}/bus"
-        if os.path.exists(f"{runtime_dir}/bus"):
-            os.environ["DBUS_SESSION_BUS_ADDRESS"] = bus_path
+    runtime_dir = os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{uid}")
+    if os.path.isdir(runtime_dir):
+        os.environ.setdefault("XDG_RUNTIME_DIR", runtime_dir)
+        bus_path = f"{runtime_dir}/bus"
+        if os.path.exists(bus_path):
+            os.environ.setdefault("DBUS_SESSION_BUS_ADDRESS", f"unix:path={bus_path}")
+            return True
+    return False
 
 
 def _offer_systemd_service():
     """Ask the user whether to install a systemd service (system-level or user-level)."""
     is_root = os.geteuid() == 0
-    user_mode = not is_root
+
+    if is_root:
+        user_mode = False
+    elif _has_user_dbus():
+        user_mode = True
+    else:
+        binary = _find_binary() or "clawfeeder-agent"
+        print()
+        print(f"{YELLOW}[WARN]{NC} No D-Bus user session detected (common in SSH).")
+        print(f"  User-level systemd service won't work in this environment.")
+        print()
+        print(f"  Run with sudo to install system-level service:")
+        print(f"    sudo {binary} --setup")
+        print()
+        return
 
     if user_mode:
-        _ensure_user_session_env()
         service_path = USER_SERVICE_PATH
         ctl = ["systemctl", "--user"]
     else:
@@ -271,20 +286,9 @@ WantedBy=default.target
         USER_SERVICE_DIR.mkdir(parents=True, exist_ok=True)
         service_path.write_text(unit)
 
-        try:
-            subprocess.run(ctl + ["daemon-reload"], check=True)
-            subprocess.run(ctl + ["enable", SERVICE_NAME], check=True)
-            subprocess.run(ctl + ["restart", SERVICE_NAME], check=True)
-        except subprocess.CalledProcessError:
-            print()
-            print(f"{RED}[ERROR]{NC} Failed to start user-level service.")
-            print("  This usually happens in SSH sessions without a D-Bus session.")
-            print()
-            print("  Options:")
-            print(f"    1. Use system-level service:  sudo {binary} --setup")
-            print(f"    2. Login via desktop/console and re-run:  {binary} --setup")
-            print()
-            return
+        subprocess.run(ctl + ["daemon-reload"], check=True)
+        subprocess.run(ctl + ["enable", SERVICE_NAME], check=True)
+        subprocess.run(ctl + ["restart", SERVICE_NAME], check=True)
 
         # enable-linger so user services survive logout
         user = os.environ.get("USER", "")
