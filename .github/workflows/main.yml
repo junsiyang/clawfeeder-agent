@@ -75,7 +75,6 @@ jobs:
           cp artifacts/clawfeeder-agent-linux/clawfeeder-agent-linux release/
           cp artifacts/clawfeeder-agent-macos-x86_64/clawfeeder-agent-macos-x86_64 release/
           cp artifacts/clawfeeder-agent-macos-arm64/clawfeeder-agent-macos-arm64 release/
-          cp install.sh release/
           chmod +x release/clawfeeder-agent-linux release/clawfeeder-agent-macos-*
 
       - name: Create release
@@ -86,6 +85,5 @@ jobs:
             release/clawfeeder-agent-linux \
             release/clawfeeder-agent-macos-x86_64 \
             release/clawfeeder-agent-macos-arm64 \
-            release/install.sh \
             --title "ClawFeeder Agent ${{ github.ref_name }}" \
             --generate-notes
