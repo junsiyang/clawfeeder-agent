@@ -267,17 +267,29 @@ def _install_crontab(binary):
         return
 
     # Start the process now with nohup
-    subprocess.Popen(
+    log_file = CONFIG_DIR / "logs" / "agent.log"
+    log_file.parent.mkdir(parents=True, exist_ok=True)
+    log_fd = open(log_file, "a")
+    proc = subprocess.Popen(
         ["nohup", binary, "--config", str(CONFIG_FILE)],
-        stdout=open(os.devnull, "w"),
-        stderr=open(os.devnull, "w"),
+        stdout=log_fd,
+        stderr=log_fd,
         start_new_session=True,
     )
+    log_fd.close()
+
+    time.sleep(2)
+    if proc.poll() is not None:
+        print(f"{RED}[ERROR]{NC} Agent exited immediately (code {proc.returncode}).")
+        print(f"  Check logs: tail -20 {log_file}")
+        print()
+        return
 
     print()
-    print(f"{GREEN}[OK]{NC} Crontab @reboot installed and agent started.")
+    print(f"{GREEN}[OK]{NC} Crontab @reboot installed and agent started (PID {proc.pid}).")
     print()
     print(f"  View crontab:  crontab -l")
+    print(f"  View logs:     tail -f {log_file}")
     print(f"  Check process: ps aux | grep clawfeeder")
     print(f"  Stop:          pkill -f clawfeeder-agent")
     print(f"  Uninstall:     crontab -l | grep -v '{CRONTAB_TAG}' | crontab -")
