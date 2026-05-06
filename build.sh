@@ -64,6 +64,7 @@ cd "$SCRIPT_DIR"
 "$VENV_PYTHON" -m PyInstaller \
   --onefile \
   --name clawfeeder-agent \
+  --runtime-tmpdir /var/tmp \
   --clean \
   entrypoint.py
 

@@ -43,7 +43,7 @@ jobs:
           printf 'BASE_URL = "%s"\nHEARTBEAT_INTERVAL = 60\n' "$url" > src/_build_config.py
 
       - name: Build binary
-        run: pyinstaller --onefile --name clawfeeder-agent --clean entrypoint.py
+        run: pyinstaller --onefile --name clawfeeder-agent --runtime-tmpdir /var/tmp --clean entrypoint.py
 
       - name: Rename artifact
         run: mv dist/clawfeeder-agent dist/${{ matrix.artifact }}
