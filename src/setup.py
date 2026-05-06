@@ -241,22 +241,19 @@ CRONTAB_TAG = "# clawfeeder-agent"
 
 
 def _install_crontab(binary):
-    """Install or update @reboot crontab entry."""
-    entry = f"@reboot {binary} --config {CONFIG_FILE} {CRONTAB_TAG}"
+    """Install or update crontab entries: @reboot + watchdog every 5 min."""
+    log_file = CONFIG_DIR / "logs" / "agent.log"
+    start_cmd = f"nohup {binary} --config {CONFIG_FILE} >> {log_file} 2>&1 &"
+    reboot_entry = f"@reboot {start_cmd} {CRONTAB_TAG}"
+    watchdog_entry = f"*/5 * * * * pgrep -f 'clawfeeder-agent --config' > /dev/null || {start_cmd} {CRONTAB_TAG}"
 
-    # Read existing crontab
     result = subprocess.run(["crontab", "-l"], capture_output=True, text=True)
     existing = result.stdout if result.returncode == 0 else ""
 
-    lines = existing.splitlines()
-    has_existing = any(CRONTAB_TAG in line for line in lines)
-
-    if has_existing:
-        # Replace existing entry
-        lines = [entry if CRONTAB_TAG in line else line for line in lines]
-        print(f"{GREEN}[INFO]{NC} Updating existing crontab entry.")
-    else:
-        lines.append(entry)
+    # Remove all old clawfeeder entries
+    lines = [line for line in existing.splitlines() if CRONTAB_TAG not in line]
+    lines.append(reboot_entry)
+    lines.append(watchdog_entry)
 
     new_crontab = "\n".join(lines).strip() + "\n"
     proc = subprocess.run(
@@ -266,8 +263,7 @@ def _install_crontab(binary):
         print(f"{RED}[ERROR]{NC} Failed to install crontab: {proc.stderr.strip()}")
         return
 
-    # Start the process now with nohup
-    log_file = CONFIG_DIR / "logs" / "agent.log"
+    # Start now
     log_file.parent.mkdir(parents=True, exist_ok=True)
     log_fd = open(log_file, "a")
     proc = subprocess.Popen(
@@ -286,7 +282,7 @@ def _install_crontab(binary):
         return
 
     print()
-    print(f"{GREEN}[OK]{NC} Crontab @reboot installed and agent started (PID {proc.pid}).")
+    print(f"{GREEN}[OK]{NC} Crontab installed and agent started (PID {proc.pid}).")
     print()
     print(f"  View crontab:  crontab -l")
     print(f"  View logs:     tail -f {log_file}")
