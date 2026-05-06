@@ -371,7 +371,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 ExecStart={binary} --config {CONFIG_FILE}
-Restart=on-failure
+Restart=always
 RestartSec=10
 
 [Install]
@@ -411,7 +411,7 @@ Wants=network-online.target
 Type=simple
 User={user}
 ExecStart={binary} --config {home}/.clawfeeder/config.yaml
-Restart=on-failure
+Restart=always
 RestartSec=10
 
 [Install]
