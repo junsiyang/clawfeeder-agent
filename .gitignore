@@ -1,7 +1,10 @@
 .venv/
+__pycache__/
+*.py[cod]
 config.build.yaml
 config.yaml
 src/_build_config.py
+clawfeeder-agent/data/
 dist/
 build/
 *.spec
