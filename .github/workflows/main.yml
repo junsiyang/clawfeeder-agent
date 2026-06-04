@@ -72,15 +72,16 @@ jobs:
 
       - name: Prepare release assets
         run: |
+          version="${GITHUB_REF_NAME#v}"
           mkdir -p release
-          cp artifacts/clawfeeder-agent-linux/clawfeeder-agent-linux release/
-          cp artifacts/clawfeeder-agent-macos-x86_64/clawfeeder-agent-macos-x86_64 release/
-          cp artifacts/clawfeeder-agent-macos-arm64/clawfeeder-agent-macos-arm64 release/
-          chmod +x release/clawfeeder-agent-linux release/clawfeeder-agent-macos-*
+          cp artifacts/clawfeeder-agent-linux/clawfeeder-agent-linux "release/clawfeeder-agent-${version}-linux"
+          cp artifacts/clawfeeder-agent-macos-x86_64/clawfeeder-agent-macos-x86_64 "release/clawfeeder-agent-${version}-macos-x86_64"
+          cp artifacts/clawfeeder-agent-macos-arm64/clawfeeder-agent-macos-arm64 "release/clawfeeder-agent-${version}-macos-arm64"
+          chmod +x release/clawfeeder-agent-${version}-*
           cd release
-          shasum -a 256 clawfeeder-agent-linux > clawfeeder-agent-linux.sha256
-          shasum -a 256 clawfeeder-agent-macos-x86_64 > clawfeeder-agent-macos-x86_64.sha256
-          shasum -a 256 clawfeeder-agent-macos-arm64 > clawfeeder-agent-macos-arm64.sha256
+          shasum -a 256 "clawfeeder-agent-${version}-linux" > "clawfeeder-agent-${version}-linux.sha256"
+          shasum -a 256 "clawfeeder-agent-${version}-macos-x86_64" > "clawfeeder-agent-${version}-macos-x86_64.sha256"
+          shasum -a 256 "clawfeeder-agent-${version}-macos-arm64" > "clawfeeder-agent-${version}-macos-arm64.sha256"
 
       - name: Create release
         env:
