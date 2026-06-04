@@ -108,8 +108,7 @@ jobs:
           gh release view "$DOWNLOAD_TAG" --repo "$DOWNLOADS_REPO" >/dev/null 2>&1 || \
             gh release create "$DOWNLOAD_TAG" \
               --repo "$DOWNLOADS_REPO" \
-              --title "ClawFeeder Agent ${{ github.ref_name }}" \
-              --notes "Source: ${{ github.repository }}@${{ github.sha }}"
+              --title "ClawFeeder Agent ${{ github.ref_name }}"
 
           gh release upload "$DOWNLOAD_TAG" release/* \
             --repo "$DOWNLOADS_REPO" \
