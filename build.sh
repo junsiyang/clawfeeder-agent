@@ -23,6 +23,27 @@ RED='\033[0;31m'
 GREEN='\033[0;32m'
 NC='\033[0m'
 
+write_sha256() {
+  local artifact="$1"
+  local artifact_dir
+  local artifact_name
+
+  artifact_dir="$(cd "$(dirname "$artifact")" && pwd)"
+  artifact_name="$(basename "$artifact")"
+
+  (
+    cd "$artifact_dir"
+    if command -v shasum >/dev/null 2>&1; then
+      shasum -a 256 "$artifact_name" > "${artifact_name}.sha256"
+    elif command -v sha256sum >/dev/null 2>&1; then
+      sha256sum "$artifact_name" > "${artifact_name}.sha256"
+    else
+      echo -e "${RED}[ERROR]${NC} Neither shasum nor sha256sum is available."
+      exit 1
+    fi
+  )
+}
+
 # ── Checks ────────────────────────────────────────────────────────────────────
 if [[ ! -f "$VENV_PYTHON" ]]; then
   echo -e "${RED}[ERROR]${NC} Virtual environment not found."
@@ -72,8 +93,12 @@ cd "$SCRIPT_DIR"
 rm -f "$GENERATED"
 echo "[INFO] Cleaned up src/_build_config.py"
 
+ARTIFACT="${SCRIPT_DIR}/dist/clawfeeder-agent"
+write_sha256 "$ARTIFACT"
+
 echo ""
-echo -e "${GREEN}[OK]${NC} Built: ${SCRIPT_DIR}/dist/clawfeeder-agent"
+echo -e "${GREEN}[OK]${NC} Built: ${ARTIFACT}"
+echo -e "${GREEN}[OK]${NC} SHA256: ${ARTIFACT}.sha256"
 echo ""
 echo "Distribute dist/clawfeeder-agent to users, then run:"
 echo "  bash install.sh"
