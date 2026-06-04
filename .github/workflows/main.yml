@@ -59,6 +59,7 @@ jobs:
     needs: build
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
+    environment: prod
     permissions:
       contents: write
 
@@ -99,6 +100,11 @@ jobs:
           DOWNLOADS_REPO: junsiyang/clawfeeder-downloads
           DOWNLOAD_TAG: agent-${{ github.ref_name }}
         run: |
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "::error::DOWNLOADS_REPO_TOKEN is not available to this job. Add it as a repository secret or a prod environment secret."
+            exit 1
+          fi
+
           gh release view "$DOWNLOAD_TAG" --repo "$DOWNLOADS_REPO" >/dev/null 2>&1 || \
             gh release create "$DOWNLOAD_TAG" \
               --repo "$DOWNLOADS_REPO" \
